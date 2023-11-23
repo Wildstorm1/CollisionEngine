@@ -3,6 +3,7 @@ use std::time::Duration;
 use bevy::asset::Assets;
 use bevy::core_pipeline::core_2d::Camera2dBundle;
 use bevy::ecs::component::Component;
+use bevy::ecs::entity::Entity;
 use bevy::ecs::query::With;
 use bevy::ecs::schedule::IntoSystemConfigs;
 use bevy::ecs::system::{
@@ -45,7 +46,7 @@ use bevy::sprite::{
 };
 use bevy::time::{
     Time,
-    Stopwatch
+    Stopwatch, Timer, TimerMode
 };
 use bevy::utils::default;
 
@@ -58,6 +59,8 @@ impl Plugin for MainPlugin {
             .add_systems(Update, (
                 handle_player_input,
                 update_animations,
+                update_projectiles,
+                despawn_update,
                 physics_update.after(handle_player_input),
                 update_ships.after(handle_player_input)
             ));
@@ -67,7 +70,8 @@ impl Plugin for MainPlugin {
 #[derive(Resource)]
 struct GlobalAssets {
     spaceship: Handle<Image>,
-    thruster: Handle<TextureAtlas>
+    thruster: Handle<TextureAtlas>,
+    projectile: Handle<TextureAtlas>
 }
 
 // Components should be reasonably reusable and orthogonal
@@ -76,10 +80,21 @@ struct GlobalAssets {
 struct Player {}
 
 #[derive(Component)]
+struct FixedLifetime {
+    lifetime: Timer
+}
+
+#[derive(Component)]
+struct Despawn {
+    delay: Timer
+}
+
+#[derive(Component)]
 struct Ship {
     linear_power: f32,
     angular_power: f32,
-    look_angle: f32
+    look_angle: f32,
+    reload: Timer
 }
 
 #[derive(Component)]
@@ -89,12 +104,19 @@ struct Physics {
     max_speed: Option<f32>
 }
 
+// TODO: Should we have different components for different kinds of animations?
+// Should different animations have different systems to drive them, ie couple
+// the animation kind to the system? Or could we employ a trait and polymorphism
+// with different logic? Does this couple things too much? Is it undoing the benefit
+// of a composition model?
 #[derive(Component)]
 struct Animation {
     time: Stopwatch,
     period: Duration,
+    frame_start: usize,
+    frame_end: usize,
     frame: usize,
-    frames: usize
+    restart: bool
 }
 
 // Higher level bundles are not as reusable though some potions may be refactored out
@@ -103,6 +125,13 @@ struct Animation {
 struct AnimatedSpriteBundle {
     animation: Animation,
     sprite: SpriteSheetBundle
+}
+
+#[derive(Bundle)]
+struct ProjectileBundle {
+    sprite: AnimatedSpriteBundle,
+    physics: Physics,
+    lifetime: FixedLifetime
 }
 
 #[derive(Bundle)]
@@ -125,9 +154,9 @@ fn load_sprite_assets(
     asset_server: Res<AssetServer>,
     mut atlas: ResMut<Assets<TextureAtlas>>
 ) {
-    let raw_atlas: Handle<Image> = asset_server.load("../assets/Thruster.png");
-    let fire_atlas = TextureAtlas::from_grid(
-        raw_atlas,
+    let raw_thruster_atlas: Handle<Image> = asset_server.load("../assets/Thruster.png");
+    let thruster_atlas = TextureAtlas::from_grid(
+        raw_thruster_atlas,
         Vec2::new(8.0, 8.0),
         5,
         1,
@@ -135,9 +164,20 @@ fn load_sprite_assets(
         None
     );
 
+    let raw_proj_atlas: Handle<Image> = asset_server.load("../assets/Projectile.png");
+    let proj_atlas = TextureAtlas::from_grid(
+        raw_proj_atlas,
+        Vec2::new(5.0, 5.0),
+        8,
+        1,
+        None,
+        None
+    );
+
     commands.insert_resource(GlobalAssets{
-        spaceship: asset_server.load("../assets/Gray1.png"),
-        thruster: atlas.add(fire_atlas)
+        spaceship: asset_server.load("../assets/Ship.png"),
+        thruster: atlas.add(thruster_atlas),
+        projectile: atlas.add(proj_atlas)
     });
 }
 
@@ -157,7 +197,8 @@ fn load_startup_elements(
         ship: Ship {
             linear_power: 50.0,
             angular_power: 0.025,
-            look_angle: 0.0
+            look_angle: 0.0,
+            reload: Timer::from_seconds(0.4, TimerMode::Once)
         },
         physics: Physics {
             velocity: Vec3::new(0.0, 0.0, 0.0),
@@ -166,7 +207,7 @@ fn load_startup_elements(
         },
         position: SpatialBundle {
             ..default()
-        }
+        },
     }).id();
 
     let ship_id = commands.spawn(SpriteBundle {
@@ -182,8 +223,10 @@ fn load_startup_elements(
         animation: Animation {
             time: Stopwatch::new(),
             period: Duration::from_millis(100),
+            frame_start: 0,
+            frame_end: 4,
             frame: 0,
-            frames: 5
+            restart: true
         },
         sprite: SpriteSheetBundle {
             sprite: fire_sprite,
@@ -197,12 +240,14 @@ fn load_startup_elements(
 }
 
 fn handle_player_input(
-    mut query: Query<(&mut Ship, &mut Physics), With<Player>>,
-    keys: Res<Input<KeyCode>>
+    mut commands: Commands,
+    mut query: Query<(&mut Ship, &mut Physics, &Transform), With<Player>>,
+    keys: Res<Input<KeyCode>>,
+    globals: Res<GlobalAssets>
 ) {
     // TODO: Think about how we could plug a different driver into this (ie, ai)
     // It may be as simple as swapping the Player tag for an AI tag on the entity
-    let (mut ship, mut physics) = query.single_mut();
+    let (mut ship, mut physics, transform) = query.single_mut();
 
     if keys.pressed(KeyCode::A) {
         ship.look_angle = f32::rem_euclid(
@@ -216,14 +261,52 @@ fn handle_player_input(
         );
     }
 
-    let a = Quat::from_rotation_z(ship.look_angle)
+    let look_vector = Quat::from_rotation_z(ship.look_angle)
         .mul_vec3(Vec3::new(0.0, 1.0, 0.0))
         .normalize();
 
     if keys.pressed(KeyCode::W) {
-        physics.acceleration = a * ship.linear_power;
+        physics.acceleration = look_vector * ship.linear_power;
     } else {
         physics.acceleration = Vec3::new(0.0, 0.0, 0.0);
+    }
+
+    if keys.pressed(KeyCode::Space) && ship.reload.finished() {
+        ship.reload.reset();
+
+        let mut bullet_sprite = TextureAtlasSprite::new(0);
+        bullet_sprite.anchor = Anchor::BottomCenter;
+
+        let mut c_frame = transform.clone();
+        c_frame.translation += 4.0 * look_vector;
+        c_frame.translation.z = 0.0;
+
+        commands.spawn(ProjectileBundle {
+            sprite: AnimatedSpriteBundle {
+                animation: Animation {
+                    time: Stopwatch::new(),
+                    period: Duration::from_millis(100),
+                    frame_start: 0,
+                    frame_end: 2,
+                    frame: 0,
+                    restart: true
+                },
+                sprite: SpriteSheetBundle {
+                    sprite: bullet_sprite,
+                    texture_atlas: globals.projectile.clone(),
+                    transform: c_frame,
+                    ..default()
+                }
+            },
+            physics: Physics {
+                velocity: (physics.velocity.length() + 25.0) * look_vector,
+                acceleration: Vec3::new(0.0, 0.0, 0.0),
+                max_speed: None
+            },
+            lifetime: FixedLifetime {
+                lifetime: Timer::from_seconds(3.0, TimerMode::Once)
+            }
+        });
     }
 }
 
@@ -236,19 +319,31 @@ fn update_animations(
 
         if animation.time.elapsed_secs_f64() > animation.period.as_secs_f64() {
             animation.time.reset();
-            animation.frame = (animation.frame + 1) % animation.frames;
+
+            if animation.frame < animation.frame_end {
+                animation.frame += 1;
+            } else if animation.restart {
+                animation.frame = animation.frame_start;
+            }
+
             sprite.index = animation.frame;
-        }
+        }        
     }
 }
 
 fn update_ships(
-    mut query: Query<(&Ship, &Physics, &mut Transform, &Children)>,
-    mut sprites: Query<&mut Visibility, With<TextureAtlasSprite>>
+    mut query: Query<(&mut Ship, &Physics, &mut Transform, &Children)>,
+    mut sprites: Query<&mut Visibility, With<TextureAtlasSprite>>,
+    time: Res<Time>
 ) {
-    for (ship, physics, mut transform, children) in query.iter_mut() {
+    for (mut ship, physics, mut transform, children) in query.iter_mut() {
         transform.rotation = Quat::from_rotation_z(ship.look_angle);
+        ship.reload.tick(time.delta());
 
+        // A ship will have a small number of children, so we loop over them and look them up in
+        // the more general query of all exhaust sprites.
+        // We could make the sprites query more specific by tagging exhaust with a tag
+        // Also, if no children match the query, this section does nothing
         for &child in children.iter() {
             match sprites.get_mut(child) {
                 Ok(mut sprite) => {
@@ -258,10 +353,43 @@ fn update_ships(
                         *sprite = Visibility::Visible;
                     }
                 },
-                Err(_) => {
-                    println!("Error getting sprite");
-                }
+                Err(_) => {}
             }
+        }
+    }
+}
+
+fn update_projectiles(
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut FixedLifetime, &mut Animation)>,
+    time: Res<Time>
+) {
+    for (entity, mut lifetime, mut animation) in query.iter_mut() {
+        lifetime.lifetime.tick(time.delta());
+
+        if lifetime.lifetime.finished() {
+            animation.frame_start = 3;
+            animation.frame_end = 7;
+            animation.frame = 3;
+            animation.restart = false;
+
+            commands.entity(entity).insert(Despawn {
+                delay: Timer::from_seconds(1.0, TimerMode::Once)
+            }).remove::<FixedLifetime>();
+        }
+    }
+}
+
+fn despawn_update(
+    mut commands: Commands,
+    mut query: Query<(Entity, &mut Despawn)>,
+    time: Res<Time>
+) {
+    for (entity, mut despawn) in query.iter_mut() {
+        despawn.delay.tick(time.delta());
+
+        if despawn.delay.finished() {
+            commands.entity(entity).remove::<Despawn>().despawn();
         }
     }
 }
@@ -270,7 +398,8 @@ fn physics_update(
     mut query: Query<(&mut Physics, &mut Transform)>,
     time: Res<Time>
 ) {
-    // Note: Don't couple the look vector here. Look vector should inform input
+    // Note: Don't couple the look vector here. Look vector should inform physics inputs
+    // earlier than this is called
     for (mut physics, mut transform) in query.iter_mut() {
         let dv = physics.acceleration * time.delta_seconds();
         physics.velocity += dv;
