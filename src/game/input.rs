@@ -11,7 +11,6 @@ use bevy::ecs::system::Query;
 use bevy::ecs::query::With;
 use bevy::prelude::{Transform, Res, Vec3};
 use bevy::sprite::TextureAtlasSprite;
-use bevy::math::Quat;
 use bevy::prelude::Commands;
 use bevy::time::{Stopwatch, Timer, TimerMode};
 use bevy::input::Input;
@@ -29,22 +28,19 @@ pub fn player_input_update_step(
     // TODO: Think about how we could plug a different driver into this (ie, ai)
     // It may be as simple as swapping the Player tag for an AI tag on the entity
     let (mut ship, mut physics, transform) = query.single_mut();
+    physics.angular_velocity = 0.0;
 
     if keys.pressed(KeyCode::A) {
-        ship.look_angle = f32::rem_euclid(
-            ship.look_angle + ship.angular_power, 2.0 * std::f32::consts::PI
-        );
+        physics.angular_velocity = ship.angular_power;
     }
 
     if keys.pressed(KeyCode::D) {
-        ship.look_angle = f32::rem_euclid(
-            ship.look_angle - ship.angular_power, 2.0 * std::f32::consts::PI
-        );
+        physics.angular_velocity = -ship.angular_power;
     }
 
-    let look_vector = Quat::from_rotation_z(ship.look_angle)
-        .mul_vec3(Vec3::new(0.0, 1.0, 0.0))
-        .normalize();
+    let look_vector = transform.rotation.mul_vec3(
+        Vec3::new(0.0, 1.0, 0.0)
+    ).normalize();
 
     if keys.pressed(KeyCode::W) {
         physics.acceleration = look_vector * ship.linear_power;
@@ -84,7 +80,10 @@ pub fn player_input_update_step(
             physics: Physics {
                 velocity: physics.velocity + (35.0 * look_vector),
                 acceleration: Vec3::new(0.0, 0.0, 0.0),
-                max_speed: None
+                max_speed: None,
+                angular_velocity: 0.0,
+                angular_acceleration: 0.0,
+                max_angular_speed: None
             },
             lifetime: FixedLifetime {
                 lifetime: Timer::from_seconds(3.0, TimerMode::Once)

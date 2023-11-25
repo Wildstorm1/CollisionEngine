@@ -123,14 +123,16 @@ fn load_startup_elements(
         player: Player {},
         ship: Ship {
             linear_power: 50.0,
-            angular_power: 0.025,
-            look_angle: 0.0,
+            angular_power: 2.0,
             reload: Timer::from_seconds(0.4, TimerMode::Once)
         },
         physics: Physics {
             velocity: Vec3::new(0.0, 0.0, 0.0),
             acceleration: Vec3::new(0.0, 0.0, 0.0),
-            max_speed: Some(75.0)            
+            max_speed: Some(75.0),
+            angular_velocity: 0.0,
+            angular_acceleration: 0.0,
+            max_angular_speed: Some(3.5)
         },
         position: SpatialBundle {
             ..default()

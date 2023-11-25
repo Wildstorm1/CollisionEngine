@@ -27,7 +27,6 @@ pub struct FixedLifetime {
 pub struct Ship {
     pub linear_power: f32,
     pub angular_power: f32,
-    pub look_angle: f32,
     pub reload: Timer
 }
 
