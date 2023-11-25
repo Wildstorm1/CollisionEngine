@@ -12,7 +12,8 @@ use bevy::prelude::{Handle, Image};
 pub struct GlobalAssets {
     pub spaceship: Handle<Image>,
     pub thruster: Handle<TextureAtlas>,
-    pub projectile: Handle<TextureAtlas>
+    pub projectile: Handle<TextureAtlas>,
+    pub asteroid: Handle<TextureAtlas>
 }
 
 #[derive(Component)]
@@ -41,6 +42,12 @@ pub struct ProjectileBundle {
     pub sprite: AnimatedSpriteBundle,
     pub physics: Physics,
     pub lifetime: FixedLifetime
+}
+
+#[derive(Bundle)]
+pub struct AsteroidBundle {
+    pub sprite: SpriteSheetBundle,
+    pub physics: Physics
 }
 
 #[derive(Bundle)]

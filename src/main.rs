@@ -7,6 +7,7 @@ use game::physics::{Physics, physics_update_step};
 use game::projectile::projectile_state_update_step;
 use game::ships::ship_state_update_step;
 use game::bundles::{
+    AsteroidBundle,
     PlayerBundle,
     GlobalAssets,
     AnimatedSpriteBundle,
@@ -15,6 +16,7 @@ use game::bundles::{
 };
 
 use std::time::Duration;
+use rand::prelude::random;
 use bevy::asset::Assets;
 use bevy::core_pipeline::core_2d::Camera2dBundle;
 use bevy::ecs::schedule::IntoSystemConfigs;
@@ -101,10 +103,21 @@ fn load_sprite_assets(
         None
     );
 
+    let raw_ast_atlas: Handle<Image> = asset_server.load("../assets/Asteroid.png");
+    let ast_atlas = TextureAtlas::from_grid(
+        raw_ast_atlas,
+        Vec2::new(32.0, 32.0),
+        8,
+        1,
+        None,
+        None
+    );
+
     commands.insert_resource(GlobalAssets{
         spaceship: asset_server.load("../assets/Ship.png"),
         thruster: atlas.add(thruster_atlas),
-        projectile: atlas.add(proj_atlas)
+        projectile: atlas.add(proj_atlas),
+        asteroid: atlas.add(ast_atlas)
     });
 }
 
@@ -127,8 +140,8 @@ fn load_startup_elements(
             reload: Timer::from_seconds(0.4, TimerMode::Once)
         },
         physics: Physics {
-            velocity: Vec3::new(0.0, 0.0, 0.0),
-            acceleration: Vec3::new(0.0, 0.0, 0.0),
+            velocity: Vec3::ZERO,
+            acceleration: Vec3::ZERO,
             max_speed: Some(75.0),
             angular_velocity: 0.0,
             angular_acceleration: 0.0,
@@ -164,6 +177,46 @@ fn load_startup_elements(
             ..default()
         },
     }).id();
+
+    let asteroid_sprite = TextureAtlasSprite::new(0);
+
+    for _ in 0..30 {
+        let mut dx = 50.0 * random::<f32>() + 0.5;
+        let mut dy = 50.0 * random::<f32>() + 0.5;
+
+        if random::<bool>() {
+            dx *= -1.0;
+        }
+
+        if random::<bool>() {
+            dy *= -1.0;
+        }
+
+        commands.spawn(AsteroidBundle {
+            sprite: SpriteSheetBundle {
+                sprite: asteroid_sprite.clone(),
+                texture_atlas: globals.asteroid.clone(),
+                transform: Transform::IDENTITY.with_translation(Vec3::new(
+                    200.0 * (2.0 * random::<f32>() - 1.0),
+                    200.0 * (2.0 * random::<f32>() - 1.0),
+                    0.0
+                )).with_scale(Vec3::new(
+                    2.0 * random::<f32>() + 1.0,
+                    2.0 * random::<f32>() + 1.0,
+                    0.0
+                )),
+                ..default()
+            },
+            physics: Physics {
+                velocity: Vec3::new(dx, dy, 0.0),
+                acceleration: Vec3::ZERO,
+                max_speed: None,
+                angular_velocity: 3.5 * (2.0 * random::<f32>() - 1.0),
+                angular_acceleration: 0.0,
+                max_angular_speed: Some(3.5)
+            }
+        });
+    }
 
     commands.entity(player_id).push_children(&[ship_id, exhaust_id]);
 }
