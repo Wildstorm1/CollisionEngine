@@ -9,7 +9,8 @@ use super::animation::Animation;
 use std::time::Duration;
 use bevy::ecs::system::Query;
 use bevy::ecs::query::With;
-use bevy::prelude::{Transform, Res, Vec3};
+use bevy::math::{Vec3, Vec2};
+use bevy::prelude::{Transform, Res};
 use bevy::sprite::TextureAtlasSprite;
 use bevy::prelude::Commands;
 use bevy::time::{Stopwatch, Timer, TimerMode};
@@ -29,6 +30,7 @@ pub fn player_input_update_step(
     // It may be as simple as swapping the Player tag for an AI tag on the entity
     let (mut ship, mut physics, transform) = query.single_mut();
     physics.angular_velocity = 0.0;
+    physics.force = Vec2::ZERO;
 
     if keys.pressed(KeyCode::A) {
         physics.angular_velocity = ship.angular_power;
@@ -38,14 +40,10 @@ pub fn player_input_update_step(
         physics.angular_velocity = -ship.angular_power;
     }
 
-    let look_vector = transform.rotation.mul_vec3(
-        Vec3::new(0.0, 1.0, 0.0)
-    ).normalize();
+    let look_vector = transform.rotation.mul_vec3(Vec3::Y).truncate().normalize();
 
     if keys.pressed(KeyCode::W) {
-        physics.acceleration = look_vector * ship.linear_power;
-    } else {
-        physics.acceleration = Vec3::new(0.0, 0.0, 0.0);
+        physics.force = look_vector * ship.linear_power;
     }
 
     if keys.pressed(KeyCode::Space) && ship.reload.finished() {
@@ -55,8 +53,7 @@ pub fn player_input_update_step(
         bullet_sprite.anchor = Anchor::BottomCenter;
 
         let mut c_frame = transform.clone();
-        c_frame.translation += 4.0 * look_vector;
-        c_frame.translation.z = 0.0;
+        c_frame.translation = (c_frame.translation.truncate() + 4.0 * look_vector).extend(0.0);
 
         // TODO: Technically, we can still use a factory :)
         // Even better, that factory can be in the system, which keeps fields private
@@ -78,12 +75,12 @@ pub fn player_input_update_step(
                 }
             },
             physics: Physics {
+                force: Vec2::ZERO,
+                mass: 1.0,
                 velocity: physics.velocity + (35.0 * look_vector),
-                acceleration: Vec3::new(0.0, 0.0, 0.0),
+                acceleration: Vec2::ZERO,
                 max_speed: None,
-                angular_velocity: 0.0,
-                angular_acceleration: 0.0,
-                max_angular_speed: None
+                angular_velocity: 0.0
             },
             lifetime: FixedLifetime {
                 lifetime: Timer::from_seconds(3.0, TimerMode::Once)

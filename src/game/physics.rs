@@ -1,17 +1,17 @@
 use bevy::ecs::component::Component;
-use bevy::math::{Vec3, Quat};
+use bevy::math::{Vec2, Quat};
 use bevy::ecs::system::Query;
 use bevy::time::Time;
 use bevy::prelude::{Res, Transform};
 
 #[derive(Component)]
 pub struct Physics {
-    pub acceleration: Vec3,    
-    pub velocity: Vec3,
+    pub force: Vec2,
+    pub mass: f32,
+    pub acceleration: Vec2,    
+    pub velocity: Vec2,
     pub max_speed: Option<f32>,
     pub angular_velocity: f32,
-    pub angular_acceleration: f32,
-    pub max_angular_speed: Option<f32>,
 }
 
 pub fn physics_update_step(
@@ -29,6 +29,8 @@ fn update_linear_motion(
     transform: &mut Transform,
     time: &Res<Time>
 ) {
+    physics.acceleration = physics.force / physics.mass;
+
     let dv = physics.acceleration * time.delta_seconds();
     physics.velocity += dv;
 
@@ -38,7 +40,7 @@ fn update_linear_motion(
     };
 
     let dp = physics.velocity * time.delta_seconds();
-    transform.translation += dp;
+    transform.translation += dp.extend(0.0);
 }
 
 fn update_angular_motion(
@@ -46,14 +48,6 @@ fn update_angular_motion(
     transform: &mut Transform,
     time: &Res<Time>
 ) {
-    let d1theta = physics.angular_acceleration * time.delta_seconds();
-    physics.angular_velocity += d1theta;
-
-    physics.angular_velocity = match physics.max_angular_speed {
-        Some(limit) => physics.angular_velocity.clamp(-limit, limit),
-        None => physics.angular_velocity
-    };
-
     let dtheta = physics.angular_velocity * time.delta_seconds();
     let (_, theta) = transform.rotation.to_axis_angle();
     transform.rotation = Quat::from_rotation_z(

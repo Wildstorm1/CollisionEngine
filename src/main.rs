@@ -22,7 +22,7 @@ use bevy::core_pipeline::core_2d::Camera2dBundle;
 use bevy::ecs::schedule::IntoSystemConfigs;
 use bevy::ecs::system::ResMut;
 use bevy::hierarchy::BuildChildren;
-use bevy::math::Vec2;
+use bevy::math::{Vec2, Vec3};
 use bevy::prelude::{
     App,
     Res,
@@ -31,7 +31,6 @@ use bevy::prelude::{
     Handle,
     AssetServer,
     Image,
-    Vec3,
     Transform, SpatialBundle
 };
 use bevy::DefaultPlugins;
@@ -140,12 +139,12 @@ fn load_startup_elements(
             reload: Timer::from_seconds(0.4, TimerMode::Once)
         },
         physics: Physics {
-            velocity: Vec3::ZERO,
-            acceleration: Vec3::ZERO,
+            force: Vec2::ZERO,
+            mass: 1.0,
+            velocity: Vec2::ZERO,
+            acceleration: Vec2::ZERO,
             max_speed: Some(75.0),
-            angular_velocity: 0.0,
-            angular_acceleration: 0.0,
-            max_angular_speed: Some(3.5)
+            angular_velocity: 0.0
         },
         position: SpatialBundle {
             ..default()
@@ -208,12 +207,12 @@ fn load_startup_elements(
                 ..default()
             },
             physics: Physics {
-                velocity: Vec3::new(dx, dy, 0.0),
-                acceleration: Vec3::ZERO,
+                force: Vec2::ZERO,
+                mass: 1.0,
+                velocity: Vec2::new(dx, dy),
+                acceleration: Vec2::ZERO,
                 max_speed: None,
-                angular_velocity: 3.5 * (2.0 * random::<f32>() - 1.0),
-                angular_acceleration: 0.0,
-                max_angular_speed: Some(3.5)
+                angular_velocity: 3.5 * (2.0 * random::<f32>() - 1.0)
             }
         });
     }
