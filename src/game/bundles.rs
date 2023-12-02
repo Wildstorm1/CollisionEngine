@@ -1,4 +1,5 @@
 use super::animation::Animation;
+use super::collision::Collidable;
 use super::physics::Physics;
 use bevy::ecs::component::Component;
 use bevy::ecs::bundle::Bundle;
@@ -41,13 +42,15 @@ pub struct AnimatedSpriteBundle {
 pub struct ProjectileBundle {
     pub sprite: AnimatedSpriteBundle,
     pub physics: Physics,
-    pub lifetime: FixedLifetime
+    pub lifetime: FixedLifetime,
+    pub collidable: Collidable
 }
 
 #[derive(Bundle)]
 pub struct AsteroidBundle {
     pub sprite: SpriteSheetBundle,
-    pub physics: Physics
+    pub physics: Physics,
+    pub collidable: Collidable
 }
 
 #[derive(Bundle)]
@@ -55,5 +58,6 @@ pub struct PlayerBundle {
     pub player: Player,
     pub ship: Ship,
     pub physics: Physics,
-    pub position: SpatialBundle
+    pub position: SpatialBundle,
+    pub collidable: Collidable
 }

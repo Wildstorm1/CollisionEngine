@@ -1,11 +1,14 @@
 mod game;
 
+use bevy_prototype_debug_lines::DebugLinesPlugin;
 use game::animation::{Animation, animation_update_step};
+use game::debug_boxs::debug_boxs_update_step;
 use game::despawn::despawn_update_step;
 use game::input::player_input_update_step;
 use game::physics::{Physics, physics_update_step};
 use game::projectile::projectile_state_update_step;
 use game::ships::ship_state_update_step;
+use game::collision::{Collidable, collision_update_step};
 use game::bundles::{
     AsteroidBundle,
     PlayerBundle,
@@ -65,15 +68,20 @@ impl Plugin for MainPlugin {
                 projectile_state_update_step,
                 despawn_update_step,
                 physics_update_step.after(player_input_update_step),
-                ship_state_update_step.after(player_input_update_step)
+                ship_state_update_step.after(player_input_update_step),
+                collision_update_step.after(physics_update_step),
+                debug_boxs_update_step.after(collision_update_step)
             ));
     }
 }
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins, MainPlugin))
-        .run();
+        .add_plugins((
+            DefaultPlugins,
+            MainPlugin,
+            DebugLinesPlugin::default()
+        )).run();
 }
 
 // TODO: We can make this a Plugin
@@ -149,6 +157,9 @@ fn load_startup_elements(
         position: SpatialBundle {
             ..default()
         },
+        collidable: Collidable {
+            bounds: Vec2::new(18.0, 18.0)
+        }
     }).id();
 
     let ship_id = commands.spawn(SpriteBundle {
@@ -182,6 +193,12 @@ fn load_startup_elements(
     for _ in 0..30 {
         let mut dx = 50.0 * random::<f32>() + 0.5;
         let mut dy = 50.0 * random::<f32>() + 0.5;
+        let scale = Vec2::new(
+            2.0 * random::<f32>() + 1.0,
+            2.0 * random::<f32>() + 1.0
+        );
+
+        let bound_r = (6.0 * scale).length();
 
         if random::<bool>() {
             dx *= -1.0;
@@ -200,8 +217,8 @@ fn load_startup_elements(
                     200.0 * (2.0 * random::<f32>() - 1.0),
                     0.0
                 )).with_scale(Vec3::new(
-                    2.0 * random::<f32>() + 1.0,
-                    2.0 * random::<f32>() + 1.0,
+                    scale.x,
+                    scale.y,
                     0.0
                 )),
                 ..default()
@@ -213,6 +230,9 @@ fn load_startup_elements(
                 acceleration: Vec2::ZERO,
                 max_speed: None,
                 angular_velocity: 3.5 * (2.0 * random::<f32>() - 1.0)
+            },
+            collidable: Collidable {
+                bounds: Vec2::new(2.0 * bound_r, 2.0 * bound_r)
             }
         });
     }

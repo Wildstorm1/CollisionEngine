@@ -4,6 +4,7 @@ use super::bundles::Ship;
 use super::bundles::ProjectileBundle;
 use super::bundles::AnimatedSpriteBundle;
 use super::bundles::FixedLifetime;
+use super::collision::Collidable;
 use super::physics::Physics;
 use super::animation::Animation;
 use std::time::Duration;
@@ -16,7 +17,6 @@ use bevy::prelude::Commands;
 use bevy::time::{Stopwatch, Timer, TimerMode};
 use bevy::input::Input;
 use bevy::input::keyboard::KeyCode;
-use bevy::sprite::Anchor;
 use bevy::sprite::SpriteSheetBundle;
 use bevy::utils::default;
 
@@ -49,11 +49,8 @@ pub fn player_input_update_step(
     if keys.pressed(KeyCode::Space) && ship.reload.finished() {
         ship.reload.reset();
 
-        let mut bullet_sprite = TextureAtlasSprite::new(0);
-        bullet_sprite.anchor = Anchor::BottomCenter;
-
         let mut c_frame = transform.clone();
-        c_frame.translation = (c_frame.translation.truncate() + 4.0 * look_vector).extend(0.0);
+        c_frame.translation = (c_frame.translation.truncate() + 6.0 * look_vector).extend(0.0);
 
         // TODO: Technically, we can still use a factory :)
         // Even better, that factory can be in the system, which keeps fields private
@@ -68,7 +65,7 @@ pub fn player_input_update_step(
                     restart: true
                 },
                 sprite: SpriteSheetBundle {
-                    sprite: bullet_sprite,
+                    sprite: TextureAtlasSprite::new(0),
                     texture_atlas: globals.projectile.clone(),
                     transform: c_frame,
                     ..default()
@@ -84,6 +81,9 @@ pub fn player_input_update_step(
             },
             lifetime: FixedLifetime {
                 lifetime: Timer::from_seconds(3.0, TimerMode::Once)
+            },
+            collidable: Collidable {
+                bounds: Vec2::new(5.0, 5.0)
             }
         });
     }

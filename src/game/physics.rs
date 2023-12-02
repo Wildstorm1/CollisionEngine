@@ -8,7 +8,7 @@ use bevy::prelude::{Res, Transform};
 pub struct Physics {
     pub force: Vec2,
     pub mass: f32,
-    pub acceleration: Vec2,    
+    pub acceleration: Vec2,
     pub velocity: Vec2,
     pub max_speed: Option<f32>,
     pub angular_velocity: f32,
