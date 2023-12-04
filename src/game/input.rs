@@ -4,7 +4,7 @@ use super::bundles::Ship;
 use super::bundles::ProjectileBundle;
 use super::bundles::AnimatedSpriteBundle;
 use super::bundles::FixedLifetime;
-use super::collision::Collidable;
+use super::collision::{Collidable, CircleCollider};
 use super::physics::Physics;
 use super::animation::Animation;
 use std::time::Duration;
@@ -83,7 +83,10 @@ pub fn player_input_update_step(
                 lifetime: Timer::from_seconds(3.0, TimerMode::Once)
             },
             collidable: Collidable {
-                bounds: Vec2::new(5.0, 5.0)
+                bounds: Vec2::new(5.0, 5.0),
+                collider: CircleCollider {
+                    radius: 2.5
+                }
             }
         });
     }

@@ -1,14 +1,15 @@
 mod game;
 
 use bevy_prototype_debug_lines::DebugLinesPlugin;
-use game::animation::{Animation, animation_update_step};
-use game::debug_boxs::debug_boxs_update_step;
+use game::animation::{animation_update_step, Animation};
+use game::bounce::bounce_update_step;
+use game::debug::debug_update_step;
 use game::despawn::despawn_update_step;
 use game::input::player_input_update_step;
-use game::physics::{Physics, physics_update_step};
+use game::physics::{physics_update_step, Physics};
 use game::projectile::projectile_state_update_step;
 use game::ships::ship_state_update_step;
-use game::collision::{Collidable, collision_update_step};
+use game::collision::{collision_update_step, Collidable, CircleCollider};
 use game::bundles::{
     AsteroidBundle,
     PlayerBundle,
@@ -73,7 +74,8 @@ impl Plugin for MainPlugin {
                 physics_update_step.after(player_input_update_step),
                 ship_state_update_step.after(player_input_update_step),
                 collision_update_step.after(physics_update_step),
-                debug_boxs_update_step.after(collision_update_step)
+                debug_update_step.after(collision_update_step),
+                bounce_update_step.after(collision_update_step)
             ));
     }
 }
@@ -161,7 +163,10 @@ fn load_startup_elements(
             ..default()
         },
         collidable: Collidable {
-            bounds: Vec2::new(18.0, 18.0)
+            bounds: Vec2::new(18.0, 18.0),
+            collider: CircleCollider {
+                radius: 9.0
+            }
         }
     }).id();
 
@@ -193,9 +198,9 @@ fn load_startup_elements(
 
     let asteroid_sprite = TextureAtlasSprite::new(0);
 
-    for _ in 0..30 {
-        let mut dx = 50.0 * random::<f32>() + 0.5;
-        let mut dy = 50.0 * random::<f32>() + 0.5;
+    for _ in 0..1000 {
+        let mut dx = 25.0 * random::<f32>() + 0.5;
+        let mut dy = 25.0 * random::<f32>() + 0.5;
         let scale = Vec2::new(
             2.0 * random::<f32>() + 1.0,
             2.0 * random::<f32>() + 1.0
@@ -216,8 +221,8 @@ fn load_startup_elements(
                 sprite: asteroid_sprite.clone(),
                 texture_atlas: globals.asteroid.clone(),
                 transform: Transform::IDENTITY.with_translation(Vec3::new(
-                    200.0 * (2.0 * random::<f32>() - 1.0),
-                    200.0 * (2.0 * random::<f32>() - 1.0),
+                    750.0 * (2.0 * random::<f32>() - 1.0),
+                    750.0 * (2.0 * random::<f32>() - 1.0),
                     0.0
                 )).with_scale(Vec3::new(
                     scale.x,
@@ -235,7 +240,10 @@ fn load_startup_elements(
                 angular_velocity: 3.5 * (2.0 * random::<f32>() - 1.0)
             },
             collidable: Collidable {
-                bounds: Vec2::new(2.0 * bound_r, 2.0 * bound_r)
+                bounds: Vec2::new(2.0 * bound_r, 2.0 * bound_r),
+                collider: CircleCollider {
+                    radius: bound_r
+                }
             }
         });
     }
