@@ -11,7 +11,7 @@ pub struct Physics {
     pub acceleration: Vec2,
     pub velocity: Vec2,
     pub max_speed: Option<f32>,
-    pub angular_velocity: f32,
+    pub angular_velocity: f32
 }
 
 pub fn physics_update_step(

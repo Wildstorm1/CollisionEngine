@@ -3,6 +3,8 @@ use super::collision::Collidable;
 use super::physics::Physics;
 use bevy::ecs::component::Component;
 use bevy::ecs::bundle::Bundle;
+use bevy::ecs::entity::Entity;
+use bevy::ecs::event::Event;
 use bevy::sprite::{TextureAtlas, SpriteSheetBundle};
 use bevy::time::Timer;
 use bevy::prelude::SpatialBundle;
@@ -15,6 +17,12 @@ pub struct GlobalAssets {
     pub thruster: Handle<TextureAtlas>,
     pub projectile: Handle<TextureAtlas>,
     pub asteroid: Handle<TextureAtlas>
+}
+
+#[derive(Event)]
+pub struct CollisionEvent {
+    pub entity: Entity,
+    pub other: Entity
 }
 
 #[derive(Component)]

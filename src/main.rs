@@ -15,7 +15,8 @@ use game::bundles::{
     GlobalAssets,
     AnimatedSpriteBundle,
     Ship,
-    Player
+    Player,
+    CollisionEvent
 };
 
 use std::time::Duration;
@@ -59,8 +60,10 @@ use bevy::utils::default;
 struct MainPlugin;
 
 impl Plugin for MainPlugin {
+    // TODO: Refactor the collision and physics systems to be plugins
     fn build(&self, app: &mut App) {
-        app.add_systems(PreStartup, load_sprite_assets)
+        app.add_event::<CollisionEvent>()
+            .add_systems(PreStartup, load_sprite_assets)
             .add_systems(Startup, load_startup_elements)
             .add_systems(Update, (
                 player_input_update_step,
