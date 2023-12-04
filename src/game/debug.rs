@@ -1,5 +1,6 @@
 use super::bundles::CollisionEvent;
 use super::collision::Collidable;
+use super::physics::{Physics, self};
 use std::collections::HashSet;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EventReader;
@@ -10,10 +11,11 @@ use bevy::render::color::Color;
 use bevy_prototype_debug_lines::DebugLines;
 
 pub fn debug_update_step(
-    mut query: Query<(Entity, &Collidable, &Transform)>,
+    mut query: Query<(Entity, &Physics, &Collidable, &Transform)>,
     mut event_reader: EventReader<CollisionEvent>,
     mut lines: ResMut<DebugLines>
 ) {
+    // TODO: Hypothetically these could all be separate systems, one per visual
     let mut highlight: HashSet<Entity> = HashSet::new();
 
     for event in event_reader.iter() {
@@ -21,8 +23,8 @@ pub fn debug_update_step(
         highlight.insert(event.other);
     }
 
-    for (entity, collidable, transform) in query.iter_mut() {
-        //let debug_poly = construct_box(collidable, transform);
+    for (entity, physics, collidable, transform) in query.iter_mut() {
+        let debug_poly = construct_box(collidable, transform);
         let debug_circle = construct_circle(collidable, transform, 20);
         let mut color = Color::WHITE;
 
@@ -30,7 +32,28 @@ pub fn debug_update_step(
             color = Color::PINK;
         }
 
-        //draw_shape(&mut lines, debug_poly, Color::WHITE);
+        lines.line_colored(
+            transform.translation,
+            transform.translation + physics.velocity.extend(0.0),
+            0.0,
+            Color::YELLOW
+        );
+
+        lines.line_colored(
+            transform.translation,
+            transform.translation + physics.acceleration.extend(0.0),
+            0.0,
+            Color::ORANGE
+        );
+
+        lines.line_colored(
+            transform.translation,
+            transform.translation + physics.force.extend(0.0),
+            0.0,
+            Color::RED
+        );
+
+        draw_shape(&mut lines, debug_poly, color);
         draw_shape(&mut lines, debug_circle, color);
     }
 }

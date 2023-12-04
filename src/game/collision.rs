@@ -44,7 +44,7 @@ impl Eq for CollisionPair {}
 
 pub fn collision_update_step(
     query: Query<(Entity, &Collidable, &Transform)>,
-    mut event_writer: EventWriter<CollisionEvent>
+    event_writer: EventWriter<CollisionEvent>
 ) {
     let possible_pairs = broad_phase(&query);
     narrow_phase(&query, event_writer, possible_pairs);
