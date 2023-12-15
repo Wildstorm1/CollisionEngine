@@ -1,27 +1,34 @@
 mod game;
+use game::physics::{Physics, physics_update_step};
 
-use game::bundles::Mesh2dColliderBundle;
-
+use bevy::ecs::bundle::Bundle;
 use bevy::asset::Assets;
 use bevy::ecs::system::ResMut;
-use bevy::math::Vec3;
+use bevy::math::{Vec3, Vec2};
 use bevy::render::color::Color;
 use bevy::render::mesh::Mesh;
 use bevy::render::mesh::shape::Circle;
-use bevy::sprite::{MaterialMesh2dBundle, ColorMaterial};
+use bevy::sprite::{MaterialMesh2dBundle, Material2d, ColorMaterial};
 use bevy::transform::components::Transform;
 use bevy::core_pipeline::core_2d::Camera2dBundle;
 use bevy::prelude::{App, Plugin, Commands};
 use bevy::DefaultPlugins;
-use bevy::app::Startup;
+use bevy::app::{Startup, Update};
 use bevy::utils::default;
 use rand::random;
+
+#[derive(Bundle)]
+struct Mesh2dColliderBundle<M> where M: Material2d {
+    mesh: MaterialMesh2dBundle<M>,
+    physics: Physics
+}
 
 struct MainPlugin;
 
 impl Plugin for MainPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_startup_elements);
+        app.add_systems(Startup, load_startup_elements)
+            .add_systems(Update, physics_update_step);
     }
 }
 
@@ -57,10 +64,18 @@ fn load_startup_elements(
                 material: material,
                 transform: Transform::IDENTITY.with_translation(Vec3::new(
                     500.0 * (2.0 * random::<f32>() - 1.0),
-                    500.0 * (2.0 * random::<f32>() - 1.0),
+                    300.0 * (2.0 * random::<f32>() - 1.0),
                     0.0
                 )),
                 ..default()
+            },
+            physics: Physics {
+                force: 50.0 * Vec2::new(
+                    2.0 * (random::<f32>() - 0.5),
+                    2.0 * (random::<f32>() - 0.5)
+                ),
+                mass: 0.15 * radius * (random::<f32>() + 1.0),
+                velocity: Vec2::ZERO
             }
         });
     }
