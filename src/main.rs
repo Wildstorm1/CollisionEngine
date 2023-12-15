@@ -1,5 +1,7 @@
 mod game;
-use game::physics::{Physics, physics_update_step};
+use bevy::app::Startup;
+use bevy_prototype_debug_lines::DebugLinesPlugin;
+use game::physics::{Physics, PhysicsPlugin};
 
 use bevy::ecs::bundle::Bundle;
 use bevy::asset::Assets;
@@ -11,9 +13,8 @@ use bevy::render::mesh::shape::Circle;
 use bevy::sprite::{MaterialMesh2dBundle, Material2d, ColorMaterial};
 use bevy::transform::components::Transform;
 use bevy::core_pipeline::core_2d::Camera2dBundle;
-use bevy::prelude::{App, Plugin, Commands};
+use bevy::prelude::{App, Commands};
 use bevy::DefaultPlugins;
-use bevy::app::{Startup, Update};
 use bevy::utils::default;
 use rand::random;
 
@@ -23,20 +24,13 @@ struct Mesh2dColliderBundle<M> where M: Material2d {
     physics: Physics
 }
 
-struct MainPlugin;
-
-impl Plugin for MainPlugin {
-    fn build(&self, app: &mut App) {
-        app.add_systems(Startup, load_startup_elements)
-            .add_systems(Update, physics_update_step);
-    }
-}
-
 fn main() {
     App::new()
+        .add_systems(Startup, load_startup_elements)
         .add_plugins((
             DefaultPlugins,
-            MainPlugin
+            DebugLinesPlugin::default(),
+            PhysicsPlugin { enable_debug: true }
         )).run();
 }
 
