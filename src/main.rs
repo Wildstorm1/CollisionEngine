@@ -1,37 +1,83 @@
 mod game;
-use bevy::app::Startup;
+use bevy::a11y::AccessibilityPlugin;
+use bevy::app::{Startup, PluginGroup, PluginGroupBuilder};
+use bevy::core::{TaskPoolPlugin, TypeRegistrationPlugin, FrameCountPlugin};
+use bevy::core_pipeline::CorePipelinePlugin;
+use bevy::diagnostic::DiagnosticsPlugin;
+use bevy::hierarchy::HierarchyPlugin;
+use bevy::input::InputPlugin;
+use bevy::log::LogPlugin;
+use bevy::render::texture::ImagePlugin;
+use bevy::time::TimePlugin;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
+use game::collision::{Collider, CollisionPlugin};
 use game::physics::{Physics, PhysicsPlugin};
 
 use bevy::ecs::bundle::Bundle;
-use bevy::asset::Assets;
+use bevy::asset::{Assets, AssetPlugin};
 use bevy::ecs::system::ResMut;
 use bevy::math::{Vec3, Vec2};
 use bevy::render::color::Color;
 use bevy::render::mesh::Mesh;
 use bevy::render::mesh::shape::Circle;
-use bevy::sprite::{MaterialMesh2dBundle, Material2d, ColorMaterial};
+use bevy::sprite::{MaterialMesh2dBundle, Material2d, ColorMaterial, SpritePlugin};
 use bevy::transform::components::Transform;
 use bevy::core_pipeline::core_2d::Camera2dBundle;
 use bevy::prelude::{App, Commands};
-use bevy::DefaultPlugins;
+use bevy::winit::WinitPlugin;
+use bevy::window::WindowPlugin;
+use bevy::render::RenderPlugin;
+use bevy::transform::TransformPlugin;
 use bevy::utils::default;
 use rand::random;
 
 #[derive(Bundle)]
 struct Mesh2dColliderBundle<M> where M: Material2d {
     mesh: MaterialMesh2dBundle<M>,
-    physics: Physics
+    physics: Physics,
+    collider: Collider
+}
+
+struct EnginePlugins;
+
+impl PluginGroup for EnginePlugins {
+    fn build(self) -> PluginGroupBuilder {
+        let group = PluginGroupBuilder::start::<Self>()
+            .add(LogPlugin::default())
+            .add(TaskPoolPlugin::default())
+            .add(TypeRegistrationPlugin)
+            .add(FrameCountPlugin)
+            .add(TimePlugin)
+            .add(TransformPlugin)
+            .add(HierarchyPlugin)
+            .add(DiagnosticsPlugin)
+            .add(InputPlugin)
+            .add(WindowPlugin::default())
+            .add(AccessibilityPlugin)
+            .add(AssetPlugin::default())
+            .add(WinitPlugin::default())
+            .add(RenderPlugin::default())
+            .add(ImagePlugin::default())
+            .add(CorePipelinePlugin)
+            .add(SpritePlugin);
+
+        group
+    }
 }
 
 fn main() {
     App::new()
         .add_systems(Startup, load_startup_elements)
+        .add_plugins(EnginePlugins)
+        .add_plugins(DebugLinesPlugin::default())
         .add_plugins((
-            DefaultPlugins,
-            DebugLinesPlugin::default(),
-            PhysicsPlugin { enable_debug: true }
-        )).run();
+            PhysicsPlugin { enable_debug: true },
+            CollisionPlugin {
+                enable_debug: true,
+                ..default()
+            }
+        ))
+        .run();
 }
 
 fn load_startup_elements(
@@ -39,7 +85,7 @@ fn load_startup_elements(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>
 ) {
-    let colors = vec!["#FFD86B", "#87E5FA", "#FC88D4"];
+    let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
     commands.spawn(Camera2dBundle::default());
 
     for _ in 0..100 {
@@ -70,6 +116,10 @@ fn load_startup_elements(
                 ),
                 mass: 0.15 * radius * (random::<f32>() + 1.0),
                 velocity: Vec2::ZERO
+            },
+            collider: Collider {
+                bounds: 2.0 * Vec2::new(radius, radius),
+                radius: radius
             }
         });
     }
