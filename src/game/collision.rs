@@ -1,7 +1,8 @@
-use bevy::app::{App, Plugin, Update};
+use bevy::app::{App, Plugin, Update, PostUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::{Event, EventWriter, EventReader};
+use bevy::ecs::schedule::IntoSystemConfigs;
 use bevy::math::Vec2;
 use bevy::ecs::system::{Query, ResMut, Resource};
 use bevy::prelude::Transform;
@@ -49,6 +50,8 @@ pub struct CollisionPlugin {
 // There are other 'life cycle' methods
 impl Plugin for CollisionPlugin {
     fn build(&self, app: &mut App) {
+        let debug_flag = self.enable_debug;
+
         app.add_event::<CollisionBeganEvent>()
             .add_event::<CollisionUpdateEvent>()
             .add_event::<CollisionEndedEvent>()
@@ -56,12 +59,8 @@ impl Plugin for CollisionPlugin {
                 potential_pairs: HashSet::with_capacity(200),
                 live_pairs: HashSet::with_capacity(100)
             })       
-            .add_systems(Update, collision_update_step);
-
-
-        if self.enable_debug {
-            app.add_systems(Update, debug_collision_update_step);
-        }
+            .add_systems(Update, collision_update_step)
+            .add_systems(PostUpdate, debug_collision_update_step.run_if(move || debug_flag));
     }
 }
 

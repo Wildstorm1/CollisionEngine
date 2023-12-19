@@ -1,5 +1,6 @@
-use bevy::app::{App, Plugin, Update};
+use bevy::app::{App, Plugin, Update, PostUpdate};
 use bevy::ecs::component::Component;
+use bevy::ecs::schedule::IntoSystemConfigs;
 use bevy::math::Vec2;
 use bevy::ecs::system::{Query, ResMut};
 use bevy::time::Time;
@@ -21,11 +22,10 @@ pub struct PhysicsPlugin {
 // TODO: How do we handle the fact that this depends on another plugin?
 impl Plugin for PhysicsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, physics_update_step);
-        
-        if self.enable_debug {
-            app.add_systems(Update, debug_physics_update_step);
-        }
+        let debug_flag = self.enable_debug;
+
+        app.add_systems(Update, physics_update_step)
+            .add_systems(PostUpdate, debug_physics_update_step.run_if(move || debug_flag));
     }
 }
 
