@@ -6,7 +6,7 @@ use bevy::core_pipeline::CorePipelinePlugin;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::hierarchy::HierarchyPlugin;
 use bevy::input::InputPlugin;
-use bevy::log::LogPlugin;
+use bevy::log::{LogPlugin, Level};
 use bevy::render::texture::ImagePlugin;
 use bevy::time::TimePlugin;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
@@ -29,6 +29,7 @@ use bevy::window::WindowPlugin;
 use bevy::render::RenderPlugin;
 use bevy::transform::TransformPlugin;
 use bevy::utils::default;
+use game::resolver::CollisionResolverPlugin;
 use rand::random;
 
 #[derive(Bundle)]
@@ -43,7 +44,7 @@ struct EnginePlugins;
 impl PluginGroup for EnginePlugins {
     fn build(self) -> PluginGroupBuilder {
         let group = PluginGroupBuilder::start::<Self>()
-            .add(LogPlugin::default())
+            .add(LogPlugin { filter: "warn,collision_engine=debug".into(), level: Level::DEBUG })
             .add(TaskPoolPlugin::default())
             .add(TypeRegistrationPlugin)
             .add(FrameCountPlugin)
@@ -71,11 +72,9 @@ fn main() {
         .add_plugins(EnginePlugins)
         .add_plugins(DebugLinesPlugin::default())
         .add_plugins((
-            PhysicsPlugin { enable_debug: true },
-            CollisionPlugin {
-                enable_debug: true,
-                ..default()
-            }
+            PhysicsPlugin::default(),
+            CollisionPlugin::default(),
+            CollisionResolverPlugin::default()
         ))
         .run();
 }
@@ -88,8 +87,8 @@ fn load_startup_elements(
     let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
     commands.spawn(Camera2dBundle::default());
 
-    for _ in 0..100 {
-        let radius = 50.0 * (0.5 + random::<f32>() / 2.0);
+    for _ in 0..200 {
+        let radius = 20.0 * (0.5 + random::<f32>() / 2.0);
         let circle = meshes.add(Mesh::from(Circle::new(radius))).into();
         let color = match Color::hex(colors[random::<usize>() % colors.len()]) {
             Ok(color) => color,

@@ -21,19 +21,22 @@ pub struct Collider {
 #[derive(Event)]
 pub struct CollisionBeganEvent {
     pub entity: Entity,
-    pub other_position: Vec2
+    pub other_position: Vec2,
+    pub other_radius: f32
 }
 
 #[derive(Event)]
 pub struct CollisionUpdateEvent {
     pub entity: Entity,
-    pub other_position: Vec2
+    pub other_position: Vec2,
+    pub other_radius: f32
 }
 
 #[derive(Event)]
 pub struct CollisionEndedEvent {
     pub entity: Entity,
-    pub other_position: Vec2
+    pub other_position: Vec2,
+    pub other_radius: f32
 }
 
 #[derive(Resource)]
@@ -73,32 +76,35 @@ impl Default for CollisionPlugin {
 }
 
 trait EventConstructor {
-    fn new(entity: Entity, other_position: Vec2) -> Self;
+    fn new(entity: Entity, other_position: Vec2, other_radius: f32) -> Self;
 }
 
 impl EventConstructor for CollisionBeganEvent {
-    fn new(entity: Entity, other_position: Vec2) -> Self {
+    fn new(entity: Entity, other_position: Vec2, other_radius: f32) -> Self {
         CollisionBeganEvent {
             entity: entity,
-            other_position: other_position
+            other_position: other_position,
+            other_radius: other_radius
         }
     }
 }
 
 impl EventConstructor for CollisionUpdateEvent {
-    fn new(entity: Entity, other_position: Vec2) -> Self {
+    fn new(entity: Entity, other_position: Vec2, other_radius: f32) -> Self {
         CollisionUpdateEvent {
             entity: entity,
-            other_position: other_position
+            other_position: other_position,
+            other_radius: other_radius
         }
     }
 }
 
 impl EventConstructor for CollisionEndedEvent {
-    fn new(entity: Entity, other_position: Vec2) -> Self {
+    fn new(entity: Entity, other_position: Vec2, other_radius: f32) -> Self {
         CollisionEndedEvent {
             entity: entity,
-            other_position: other_position
+            other_position: other_position,
+            other_radius: other_radius
         }
     }
 }
@@ -202,7 +208,7 @@ fn narrow_phase(
             Err(_) => continue
         };
 
-        let are_colliding = transform_a.translation.distance(transform_b.translation) < collidable_a.radius + collidable_b.radius;
+        let are_colliding = transform_a.translation.truncate().distance(transform_b.translation.truncate()) < collidable_a.radius + collidable_b.radius;
 
         if are_colliding && !live_pairs.contains(&pair) {
             send_collision_event::<CollisionBeganEvent>(query, pair.entity_a, pair.entity_b, &mut start_event_writer);
@@ -222,18 +228,18 @@ fn send_collision_event<T>(
     entity_b: Entity,
     event_writer: &mut EventWriter<T>
 ) where T: Event + EventConstructor {
-    let (entity_a, _, transform_a) = match query.get(entity_a) {
+    let (entity_a, collider_a, transform_a) = match query.get(entity_a) {
         Ok(entity) => entity,
         Err(_) => return
     };
 
-    let (entity_b, _, transform_b) = match query.get(entity_b) {
+    let (entity_b, collider_b, transform_b) = match query.get(entity_b) {
         Ok(entity) => entity,
         Err(_) => return
     };
 
-    event_writer.send(T::new(entity_a, transform_b.translation.truncate()));
-    event_writer.send(T::new(entity_b, transform_a.translation.truncate()));
+    event_writer.send(T::new(entity_a, transform_b.translation.truncate(), collider_b.radius));
+    event_writer.send(T::new(entity_b, transform_a.translation.truncate(), collider_a.radius));
 }
 
 fn debug_collision_update_step(
@@ -258,9 +264,11 @@ fn debug_collision_update_step(
     }
 
     for (entity, collidable, transform) in query.iter() {
+        let color = colors.get(&entity).unwrap_or(&Color::WHITE);
+
         shapes.rect()
             .position(transform.translation)
             .size(collidable.bounds)
-            .color(colors.get(&entity).unwrap_or(&Color::WHITE).to_owned());
+            .color(color.clone());
     }
 }
