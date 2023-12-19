@@ -4,7 +4,9 @@ use bevy::app::{App, Plugin, Update};
 use bevy::ecs::entity::Entity;
 use bevy::ecs::event::EventReader;
 use bevy::ecs::system::Query;
+use bevy::math::Vec3;
 use bevy::prelude::Transform;
+use rand::random;
 
 pub struct CollisionResolverPlugin;
 
@@ -24,17 +26,23 @@ impl Default for CollisionResolverPlugin {
 }
 
 fn collision_resolver_update_step(
-    mut query: Query<(Entity, &mut Physics, &Transform)>,
+    mut query: Query<(Entity, &mut Physics, &mut Transform)>,
     mut start_event_reader: EventReader<CollisionBeganEvent>
 ) {
     for event in start_event_reader.iter() {
-        let (_, mut physics, transform) = match query.get_mut(event.entity) {
+        let (_, mut physics, mut transform) = match query.get_mut(event.entity) {
             Ok(entity) => entity,
             Err(_) => continue
         };
 
-        let anti_vector = (transform.translation.truncate() - event.other_position).normalize();
-        physics.velocity = anti_vector * physics.velocity.length();
+        let anti_vector = transform.translation.truncate() - event.other_position;
+
+        if anti_vector.length_squared() <= f32::EPSILON {
+            transform.translation = transform.translation + 10.0 * f32::EPSILON * Vec3::new(2.0 * random::<f32>() - 1.0, 2.0 * random::<f32>() - 1.0, 0.0);
+            continue;
+        }
+
+        physics.velocity = anti_vector.normalize() * physics.velocity.length();
     }
 }
 
@@ -49,7 +57,13 @@ fn overlap_resolver_update_step(
         };
 
         let anti_vector = transform.translation.truncate() - event.other_position;
-        let overflow = (collider.radius + event.other_radius - anti_vector.length()).abs().min(1.0);
+
+        if anti_vector.length_squared() <= f32::EPSILON {
+            transform.translation = transform.translation + 10.0 * f32::EPSILON * Vec3::new(2.0 * random::<f32>() - 1.0, 2.0 * random::<f32>() - 1.0, 0.0);
+            continue;
+        }
+
+        let overflow = (collider.radius + event.other_radius - anti_vector.length()).abs().min(0.5);
         transform.translation = transform.translation + (overflow * anti_vector.normalize().extend(0.0));
     }
 }

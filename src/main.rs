@@ -87,7 +87,7 @@ fn load_startup_elements(
     let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
     commands.spawn(Camera2dBundle::default());
 
-    for _ in 0..200 {
+    for _ in 0..500 {
         let radius = 20.0 * (0.5 + random::<f32>() / 2.0);
         let circle = meshes.add(Mesh::from(Circle::new(radius))).into();
         let color = match Color::hex(colors[random::<usize>() % colors.len()]) {
