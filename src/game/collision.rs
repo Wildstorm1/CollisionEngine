@@ -182,8 +182,8 @@ fn broad_phase(
     // TODO: Should I be saving this memory?? (This should actually disappear with spacial partitioning)
     let mut seen_pairs = HashSet::new();
 
-    for (entity_a, physics_a, collidable_a, transform_a) in query.iter() {
-        for (entity_b, physics_b, collidable_b, transform_b) in query.iter() {
+    for (entity_a, _, collidable_a, transform_a) in query.iter() {
+        for (entity_b, _, collidable_b, transform_b) in query.iter() {
             let pair = CollisionPair {
                 entity_a: entity_a,
                 entity_b: entity_b
@@ -224,19 +224,30 @@ fn narrow_phase(
         let potentially_colliding = potential_pairs.contains(pair);
 
         if !potentially_colliding {
-            send_collision_event::<CollisionEndedEvent>(query, pair.entity_a, pair.entity_b, &mut end_event_writer);
+            let (entity_a, physics_a, collidable_a, transform_a) = match query.get(pair.entity_a) {
+                Ok(entity) => entity,
+                Err(_) => { return false; }
+            };
+    
+            let (entity_b, physics_b, collidable_b, transform_b) = match query.get(pair.entity_b) {
+                Ok(entity) => entity,
+                Err(_) => { return false; }
+            };
+
+            end_event_writer.send(CollisionEndedEvent::new(entity_a, transform_b, physics_b, collidable_b));
+            end_event_writer.send(CollisionEndedEvent::new(entity_b, transform_a, physics_a, collidable_a));
         }
 
         potentially_colliding
     });
 
     for pair in potential_pairs.drain() {
-        let (_, physics_a, collidable_a, transform_a) = match query.get(pair.entity_a) {
+        let (entity_a, physics_a, collidable_a, transform_a) = match query.get(pair.entity_a) {
             Ok(entity) => entity,
             Err(_) => continue
         };
 
-        let (_, physics_b, collidable_b, transform_b) = match query.get(pair.entity_b) {
+        let (entity_b, physics_b, collidable_b, transform_b) = match query.get(pair.entity_b) {
             Ok(entity) => entity,
             Err(_) => continue
         };
@@ -244,35 +255,18 @@ fn narrow_phase(
         let are_colliding = transform_a.translation.truncate().distance(transform_b.translation.truncate()) < collidable_a.radius + collidable_b.radius;
 
         if are_colliding && !live_pairs.contains(&pair) {
-            send_collision_event::<CollisionBeganEvent>(query, pair.entity_a, pair.entity_b, &mut start_event_writer);
+            start_event_writer.send(CollisionBeganEvent::new(entity_a, transform_b, physics_b, collidable_b));
+            start_event_writer.send(CollisionBeganEvent::new(entity_b, transform_a, physics_a, collidable_a));
             live_pairs.insert(pair);
         } else if are_colliding && live_pairs.contains(&pair) {
-            send_collision_event::<CollisionUpdateEvent>(query, pair.entity_a, pair.entity_b, &mut update_event_writer);
+            update_event_writer.send(CollisionUpdateEvent::new(entity_a, transform_b, physics_b, collidable_b));
+            update_event_writer.send(CollisionUpdateEvent::new(entity_b, transform_a, physics_a, collidable_a));
         } else if !are_colliding && live_pairs.contains(&pair) {
-            send_collision_event::<CollisionEndedEvent>(query, pair.entity_a, pair.entity_b, &mut end_event_writer);
+            end_event_writer.send(CollisionEndedEvent::new(entity_a, transform_b, physics_b, collidable_b));
+            end_event_writer.send(CollisionEndedEvent::new(entity_b, transform_a, physics_a, collidable_a));
             live_pairs.remove(&pair);
         }
     }
-}
-
-fn send_collision_event<T>(
-    query: &Query<(Entity, &Physics, &Collider, &Transform)>,
-    entity_a: Entity,
-    entity_b: Entity,
-    event_writer: &mut EventWriter<T>
-) where T: Event + EventConstructor {
-    let (entity_a, physics_a, collider_a, transform_a) = match query.get(entity_a) {
-        Ok(entity) => entity,
-        Err(_) => return
-    };
-
-    let (entity_b, physics_b, collider_b, transform_b) = match query.get(entity_b) {
-        Ok(entity) => entity,
-        Err(_) => return
-    };
-
-    event_writer.send(T::new(entity_a, transform_b, physics_b, collider_b));
-    event_writer.send(T::new(entity_b, transform_a, physics_a, collider_a));
 }
 
 fn debug_collision_update_step(
