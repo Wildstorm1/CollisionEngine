@@ -1,3 +1,4 @@
+use super::physics::Physics;
 use bevy::app::{App, Plugin, Update, PostUpdate};
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
@@ -22,6 +23,8 @@ pub struct Collider {
 pub struct CollisionBeganEvent {
     pub entity: Entity,
     pub other_position: Vec2,
+    pub other_velocity: Vec2,
+    pub other_mass: f32,
     pub other_radius: f32
 }
 
@@ -29,6 +32,8 @@ pub struct CollisionBeganEvent {
 pub struct CollisionUpdateEvent {
     pub entity: Entity,
     pub other_position: Vec2,
+    pub other_velocity: Vec2,
+    pub other_mass: f32,
     pub other_radius: f32
 }
 
@@ -36,6 +41,8 @@ pub struct CollisionUpdateEvent {
 pub struct CollisionEndedEvent {
     pub entity: Entity,
     pub other_position: Vec2,
+    pub other_velocity: Vec2,
+    pub other_mass: f32,
     pub other_radius: f32
 }
 
@@ -76,35 +83,61 @@ impl Default for CollisionPlugin {
 }
 
 trait EventConstructor {
-    fn new(entity: Entity, other_position: Vec2, other_radius: f32) -> Self;
+    fn new(
+        entity: Entity,
+        other_transform: &Transform,
+        other_physics: &Physics,
+        other_collider: &Collider
+    ) -> Self;
 }
 
 impl EventConstructor for CollisionBeganEvent {
-    fn new(entity: Entity, other_position: Vec2, other_radius: f32) -> Self {
+    fn new(
+        entity: Entity,
+        other_transform: &Transform,
+        other_physics: &Physics,
+        other_collider: &Collider
+    ) -> Self {
         CollisionBeganEvent {
             entity: entity,
-            other_position: other_position,
-            other_radius: other_radius
+            other_position: other_transform.translation.truncate(),
+            other_velocity: other_physics.velocity,
+            other_mass: other_physics.mass,
+            other_radius: other_collider.radius
         }
     }
 }
 
 impl EventConstructor for CollisionUpdateEvent {
-    fn new(entity: Entity, other_position: Vec2, other_radius: f32) -> Self {
+    fn new(
+        entity: Entity,
+        other_transform: &Transform,
+        other_physics: &Physics,
+        other_collider: &Collider
+    ) -> Self {
         CollisionUpdateEvent {
             entity: entity,
-            other_position: other_position,
-            other_radius: other_radius
+            other_position: other_transform.translation.truncate(),
+            other_velocity: other_physics.velocity,
+            other_mass: other_physics.mass,
+            other_radius: other_collider.radius
         }
     }
 }
 
 impl EventConstructor for CollisionEndedEvent {
-    fn new(entity: Entity, other_position: Vec2, other_radius: f32) -> Self {
+    fn new(
+        entity: Entity,
+        other_transform: &Transform,
+        other_physics: &Physics,
+        other_collider: &Collider
+    ) -> Self {
         CollisionEndedEvent {
             entity: entity,
-            other_position: other_position,
-            other_radius: other_radius
+            other_position: other_transform.translation.truncate(),
+            other_velocity: other_physics.velocity,
+            other_mass: other_physics.mass,
+            other_radius: other_collider.radius
         }
     }
 }
@@ -131,7 +164,7 @@ impl PartialEq for CollisionPair {
 impl Eq for CollisionPair {}
 
 fn collision_update_step(
-    query: Query<(Entity, &Collider, &Transform)>,
+    query: Query<(Entity, &Physics, &Collider, &Transform)>,
     mut cache: ResMut<CollisionCache>,
     start_event_writer: EventWriter<CollisionBeganEvent>,
     update_event_writer: EventWriter<CollisionUpdateEvent>,
@@ -143,14 +176,14 @@ fn collision_update_step(
 
 // From frame-to-frame, expects the cache to have been cleared
 fn broad_phase(
-    query: &Query<(Entity, &Collider, &Transform)>,
+    query: &Query<(Entity, &Physics, &Collider, &Transform)>,
     cache: &mut ResMut<CollisionCache>
 ) {
     // TODO: Should I be saving this memory?? (This should actually disappear with spacial partitioning)
     let mut seen_pairs = HashSet::new();
 
-    for (entity_a, collidable_a, transform_a) in query.iter() {
-        for (entity_b, collidable_b, transform_b) in query.iter() {
+    for (entity_a, physics_a, collidable_a, transform_a) in query.iter() {
+        for (entity_b, physics_b, collidable_b, transform_b) in query.iter() {
             let pair = CollisionPair {
                 entity_a: entity_a,
                 entity_b: entity_b
@@ -179,7 +212,7 @@ fn broad_phase(
 }
 
 fn narrow_phase(
-    query: &Query<(Entity, &Collider, &Transform)>,
+    query: &Query<(Entity, &Physics, &Collider, &Transform)>,
     cache: &mut ResMut<CollisionCache>,
     mut start_event_writer: EventWriter<CollisionBeganEvent>,
     mut update_event_writer: EventWriter<CollisionUpdateEvent>,
@@ -198,12 +231,12 @@ fn narrow_phase(
     });
 
     for pair in potential_pairs.drain() {
-        let (_, collidable_a, transform_a) = match query.get(pair.entity_a) {
+        let (_, physics_a, collidable_a, transform_a) = match query.get(pair.entity_a) {
             Ok(entity) => entity,
             Err(_) => continue
         };
 
-        let (_, collidable_b, transform_b) = match query.get(pair.entity_b) {
+        let (_, physics_b, collidable_b, transform_b) = match query.get(pair.entity_b) {
             Ok(entity) => entity,
             Err(_) => continue
         };
@@ -223,23 +256,23 @@ fn narrow_phase(
 }
 
 fn send_collision_event<T>(
-    query: &Query<(Entity, &Collider, &Transform)>,
+    query: &Query<(Entity, &Physics, &Collider, &Transform)>,
     entity_a: Entity,
     entity_b: Entity,
     event_writer: &mut EventWriter<T>
 ) where T: Event + EventConstructor {
-    let (entity_a, collider_a, transform_a) = match query.get(entity_a) {
+    let (entity_a, physics_a, collider_a, transform_a) = match query.get(entity_a) {
         Ok(entity) => entity,
         Err(_) => return
     };
 
-    let (entity_b, collider_b, transform_b) = match query.get(entity_b) {
+    let (entity_b, physics_b, collider_b, transform_b) = match query.get(entity_b) {
         Ok(entity) => entity,
         Err(_) => return
     };
 
-    event_writer.send(T::new(entity_a, transform_b.translation.truncate(), collider_b.radius));
-    event_writer.send(T::new(entity_b, transform_a.translation.truncate(), collider_a.radius));
+    event_writer.send(T::new(entity_a, transform_b, physics_b, collider_b));
+    event_writer.send(T::new(entity_b, transform_a, physics_a, collider_a));
 }
 
 fn debug_collision_update_step(

@@ -42,7 +42,9 @@ fn collision_resolver_update_step(
             continue;
         }
 
-        physics.velocity = anti_vector.normalize() * physics.velocity.length();
+        let deflection_n = (2.0 * event.other_mass) * (physics.velocity - event.other_velocity).dot(anti_vector);
+        let deflection_d = anti_vector.length_squared() * (physics.mass + event.other_mass);
+        physics.velocity = physics.velocity - (deflection_n / deflection_d * anti_vector);
     }
 }
 
@@ -63,7 +65,7 @@ fn overlap_resolver_update_step(
             continue;
         }
 
-        let overflow = (collider.radius + event.other_radius - anti_vector.length()).abs().min(0.5);
+        let overflow = (collider.radius + event.other_radius - anti_vector.length()).abs().min(1.0);
         transform.translation = transform.translation + (overflow * anti_vector.normalize().extend(0.0));
     }
 }
