@@ -44,7 +44,7 @@ fn collision_resolver_update_step(
 
         let deflection_n = (2.0 * event.other_mass) * (physics.velocity - event.other_velocity).dot(anti_vector);
         let deflection_d = anti_vector.length_squared() * (physics.mass + event.other_mass);
-        physics.velocity = physics.velocity - (deflection_n / deflection_d * anti_vector);
+        physics.velocity = 0.90 * physics.velocity - (deflection_n / deflection_d * anti_vector);
     }
 }
 

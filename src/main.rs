@@ -1,6 +1,18 @@
 mod game;
+
+use bevy::ecs::event::EventReader;
+use bevy::input::mouse::{MouseWheel, MouseScrollUnit};
+use bevy::render::camera::OrthographicProjection;
+use game::resolver::CollisionResolverPlugin;
+use game::collision::{Collider, CollisionPlugin};
+use game::gravity::GravityPlugin;
+use game::physics::{Physics, PhysicsPlugin};
+use bevy_prototype_debug_lines::DebugLinesPlugin;
+
+use rand::random;
+
 use bevy::a11y::AccessibilityPlugin;
-use bevy::app::{Startup, PluginGroup, PluginGroupBuilder};
+use bevy::app::{Startup, PluginGroup, PluginGroupBuilder, Update};
 use bevy::core::{TaskPoolPlugin, TypeRegistrationPlugin, FrameCountPlugin};
 use bevy::core_pipeline::CorePipelinePlugin;
 use bevy::diagnostic::DiagnosticsPlugin;
@@ -9,13 +21,9 @@ use bevy::input::InputPlugin;
 use bevy::log::{LogPlugin, Level};
 use bevy::render::texture::ImagePlugin;
 use bevy::time::TimePlugin;
-use bevy_prototype_debug_lines::DebugLinesPlugin;
-use game::collision::{Collider, CollisionPlugin};
-use game::physics::{Physics, PhysicsPlugin};
-
 use bevy::ecs::bundle::Bundle;
 use bevy::asset::{Assets, AssetPlugin};
-use bevy::ecs::system::ResMut;
+use bevy::ecs::system::{ResMut, Query};
 use bevy::math::{Vec3, Vec2};
 use bevy::render::color::Color;
 use bevy::render::mesh::Mesh;
@@ -29,8 +37,6 @@ use bevy::window::WindowPlugin;
 use bevy::render::RenderPlugin;
 use bevy::transform::TransformPlugin;
 use bevy::utils::default;
-use game::resolver::CollisionResolverPlugin;
-use rand::random;
 
 #[derive(Bundle)]
 struct Mesh2dColliderBundle<M> where M: Material2d {
@@ -69,14 +75,38 @@ impl PluginGroup for EnginePlugins {
 fn main() {
     App::new()
         .add_systems(Startup, load_startup_elements)
+        .add_systems(Update, input_update_step)
         .add_plugins(EnginePlugins)
         .add_plugins(DebugLinesPlugin::default())
         .add_plugins((
             PhysicsPlugin::default(),
+            GravityPlugin::default(),
             CollisionPlugin::default(),
             CollisionResolverPlugin::default()
         ))
         .run();
+}
+
+pub fn input_update_step(
+    mut query: Query<&mut OrthographicProjection>,
+    mut scroll_reader: EventReader<MouseWheel>,
+) {
+    let mut count = 0.0;
+
+    for ev in scroll_reader.iter() {
+        match ev.unit {
+            MouseScrollUnit::Line => {
+                count += ev.y;
+            }
+            MouseScrollUnit::Pixel => {
+                count += ev.y;
+            }
+        }
+    }
+
+    for mut projection in query.iter_mut() {
+        projection.scale = (projection.scale + 0.1 * count).clamp(0.10, 10.0);
+    }
 }
 
 fn load_startup_elements(
@@ -102,17 +132,14 @@ fn load_startup_elements(
                 mesh: circle,
                 material: material,
                 transform: Transform::IDENTITY.with_translation(Vec3::new(
-                    500.0 * (2.0 * random::<f32>() - 1.0),
-                    300.0 * (2.0 * random::<f32>() - 1.0),
+                    2250.0 * (2.0 * random::<f32>() - 1.0),
+                    2250.0 * (2.0 * random::<f32>() - 1.0),
                     0.0
                 )),
                 ..default()
             },
             physics: Physics {
-                force: 50.0 * Vec2::new(
-                    2.0 * (random::<f32>() - 0.5),
-                    2.0 * (random::<f32>() - 0.5)
-                ),
+                force: Vec2::ZERO,
                 mass: 0.15 * radius * (random::<f32>() + 1.0),
                 velocity: Vec2::ZERO
             },
