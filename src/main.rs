@@ -3,10 +3,9 @@ mod game;
 use bevy::ecs::event::EventReader;
 use bevy::input::mouse::{MouseWheel, MouseScrollUnit};
 use bevy::render::camera::OrthographicProjection;
-use game::resolver::CollisionResolverPlugin;
-use game::collision::{Collider, CollisionPlugin};
+use game::collision::{CircleCollider, CollisionPlugin, CircleColliderBundle, AxisAlignedBoundingBox};
 use game::gravity::GravityPlugin;
-use game::physics::{Physics, PhysicsPlugin};
+use game::collision::Physics;
 use bevy_prototype_debug_lines::DebugLinesPlugin;
 
 use rand::random;
@@ -42,7 +41,7 @@ use bevy::utils::default;
 struct Mesh2dColliderBundle<M> where M: Material2d {
     mesh: MaterialMesh2dBundle<M>,
     physics: Physics,
-    collider: Collider
+    collider: CircleColliderBundle
 }
 
 struct EnginePlugins;
@@ -79,17 +78,15 @@ fn main() {
         .add_plugins(EnginePlugins)
         .add_plugins(DebugLinesPlugin::default())
         .add_plugins((
-            PhysicsPlugin::default(),
             GravityPlugin::default(),
-            CollisionPlugin::default(),
-            CollisionResolverPlugin::default()
+            CollisionPlugin::default()
         ))
         .run();
 }
 
 pub fn input_update_step(
     mut query: Query<&mut OrthographicProjection>,
-    mut scroll_reader: EventReader<MouseWheel>,
+    mut scroll_reader: EventReader<MouseWheel>
 ) {
     let mut count = 0.0;
 
@@ -117,36 +114,77 @@ fn load_startup_elements(
     let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
     commands.spawn(Camera2dBundle::default());
 
-    for _ in 0..500 {
+    for _ in 0..400 {
+        let lo_r = 20.0 * (0.5 + (0.0 / 2.0));
+        let hi_r = 20.0 * (0.5 + (1.0 / 2.0));
+        let lo_m = 0.15 * lo_r * (0.0 + 1.0);
+        let hi_m = 0.15 * hi_r * (1.0 + 1.0);
+
         let radius = 20.0 * (0.5 + random::<f32>() / 2.0);
+        let mass = 0.15 * radius * (random::<f32>() + 1.0);
         let circle = meshes.add(Mesh::from(Circle::new(radius))).into();
-        let color = match Color::hex(colors[random::<usize>() % colors.len()]) {
+        
+        let d = (mass - lo_m) / (hi_m - lo_m);
+        let color = match Color::hex(colors[(d * colors.len() as f32) as usize]) {
             Ok(color) => color,
             Err(_) => Color::WHITE
         };
 
         let material = materials.add(ColorMaterial::from(color)).into();
+        let pos = Transform::IDENTITY.with_translation(Vec3::new(
+            2500.0 * (2.0 * random::<f32>() - 1.0),
+            2500.0 * (2.0 * random::<f32>() - 1.0),
+            0.0
+        ));
 
         commands.spawn(Mesh2dColliderBundle {
             mesh: MaterialMesh2dBundle {
                 mesh: circle,
                 material: material,
-                transform: Transform::IDENTITY.with_translation(Vec3::new(
-                    2250.0 * (2.0 * random::<f32>() - 1.0),
-                    2250.0 * (2.0 * random::<f32>() - 1.0),
-                    0.0
-                )),
+                transform: pos,
                 ..default()
             },
-            physics: Physics {
-                force: Vec2::ZERO,
-                mass: 0.15 * radius * (random::<f32>() + 1.0),
-                velocity: Vec2::ZERO
-            },
-            collider: Collider {
-                bounds: 2.0 * Vec2::new(radius, radius),
-                radius: radius
+            physics: Physics::new(
+                Vec2::ZERO,
+                mass,
+                pos
+            ),
+            collider: CircleColliderBundle {
+                aabb: AxisAlignedBoundingBox {
+                    bounds: 2.0 * Vec2::new(radius, radius)
+                },
+                collider: CircleCollider {
+                    radius: radius
+                }
             }
         });
     }
+
+    /*commands.spawn(StaticBoxColliderBundle {
+        aabb: AxisAlignedBoundingBox {
+            bounds: Vec2::new(50.0, 1600.0)
+        },
+        transform: Transform::IDENTITY.with_translation(Vec3::new(-825.0, 0.0, 0.0))
+    });
+
+    commands.spawn(StaticBoxColliderBundle {
+        aabb: AxisAlignedBoundingBox {
+            bounds: Vec2::new(50.0, 1600.0)
+        },
+        transform: Transform::IDENTITY.with_translation(Vec3::new(825.0, 0.0, 0.0))
+    });
+
+    commands.spawn(StaticBoxColliderBundle {
+        aabb: AxisAlignedBoundingBox {
+            bounds: Vec2::new(1600.0, 50.0)
+        },
+        transform: Transform::IDENTITY.with_translation(Vec3::new(0.0, -825.0, 0.0))
+    });
+
+    commands.spawn(StaticBoxColliderBundle {
+        aabb: AxisAlignedBoundingBox {
+            bounds: Vec2::new(1600.0, 50.0)
+        },
+        transform: Transform::IDENTITY.with_translation(Vec3::new(0.0, 825.0, 0.0))
+    });*/
 }

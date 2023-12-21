@@ -1,76 +1,76 @@
-use super::physics::Physics;
-use bevy::app::{App, Plugin, Update, PostUpdate};
+use bevy::app::{App, Plugin, Update, PostUpdate, PostStartup};
+use bevy::ecs::bundle::Bundle;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
-use bevy::ecs::event::{Event, EventWriter, EventReader};
 use bevy::ecs::schedule::IntoSystemConfigs;
-use bevy::math::Vec2;
-use bevy::ecs::system::{Query, ResMut, Resource};
+use bevy::math::{Vec2, Vec3};
+use bevy::ecs::system::{Query, ResMut, Resource, ParamSet, Res};
 use bevy::prelude::Transform;
 use bevy::render::color::Color;
-use bevy_prototype_debug_lines::DebugShapes;
+use bevy::time::Time;
+use bevy_prototype_debug_lines::{DebugShapes, DebugLines};
 use std::hash::{Hash, Hasher};
 use std::ops::BitXor;
 use std::collections::{HashSet, HashMap};
+use rand::random;
 
 #[derive(Component)]
-pub struct Collider {
-    pub bounds: Vec2,
+pub struct Physics {
+    pub force: Vec2,
+    pub mass: f32,
+    prev_pos: Vec2
+}
+
+impl Physics {
+    pub fn new(force: Vec2, mass: f32, position: Transform) -> Self {
+        Physics {
+            force: force,
+            mass: mass,
+            prev_pos: position.translation.truncate()
+        }
+    }
+}
+
+#[derive(Component)]
+pub struct AxisAlignedBoundingBox {
+    pub bounds: Vec2
+}
+
+#[derive(Component)]
+pub struct CircleCollider {
     pub radius: f32
 }
 
-#[derive(Event)]
-pub struct CollisionBeganEvent {
-    pub entity: Entity,
-    pub other_position: Vec2,
-    pub other_velocity: Vec2,
-    pub other_mass: f32,
-    pub other_radius: f32
+#[derive(Bundle)]
+pub struct StaticBoxColliderBundle {
+    pub aabb: AxisAlignedBoundingBox,
+    pub transform: Transform
 }
 
-#[derive(Event)]
-pub struct CollisionUpdateEvent {
-    pub entity: Entity,
-    pub other_position: Vec2,
-    pub other_velocity: Vec2,
-    pub other_mass: f32,
-    pub other_radius: f32
-}
-
-#[derive(Event)]
-pub struct CollisionEndedEvent {
-    pub entity: Entity,
-    pub other_position: Vec2,
-    pub other_velocity: Vec2,
-    pub other_mass: f32,
-    pub other_radius: f32
-}
-
-#[derive(Resource)]
-struct CollisionCache {
-    potential_pairs: HashSet<CollisionPair>,
-    live_pairs: HashSet<CollisionPair>
+#[derive(Bundle)]
+pub struct CircleColliderBundle {
+    pub aabb: AxisAlignedBoundingBox,
+    pub collider: CircleCollider
 }
 
 pub struct CollisionPlugin {
     pub enable_debug: bool
 }
 
-// TODO: How do we handle the fact that this depends on another plugin?
-// There are other 'life cycle' methods
 impl Plugin for CollisionPlugin {
     fn build(&self, app: &mut App) {
         let debug_flag = self.enable_debug;
 
-        app.add_event::<CollisionBeganEvent>()
-            .add_event::<CollisionUpdateEvent>()
-            .add_event::<CollisionEndedEvent>()
-            .insert_resource(CollisionCache {
+        app.insert_resource(CollisionCache {
                 potential_pairs: HashSet::with_capacity(200),
-                live_pairs: HashSet::with_capacity(100)
-            })       
-            .add_systems(Update, collision_update_step)
-            .add_systems(PostUpdate, debug_collision_update_step.run_if(move || debug_flag));
+                live_pairs: HashMap::with_capacity(100)
+            })
+            .add_systems(PostStartup, run_startup_step)
+            .add_systems(Update, run_step)
+            .add_systems(PostUpdate, (
+                debug_collision_update_step.run_if(move || debug_flag),
+                debug_physics_update_step.run_if(move || debug_flag)
+            ));
     }
 }
 
@@ -82,70 +82,20 @@ impl Default for CollisionPlugin {
     }
 }
 
-trait EventConstructor {
-    fn new(
-        entity: Entity,
-        other_transform: &Transform,
-        other_physics: &Physics,
-        other_collider: &Collider
-    ) -> Self;
-}
-
-impl EventConstructor for CollisionBeganEvent {
-    fn new(
-        entity: Entity,
-        other_transform: &Transform,
-        other_physics: &Physics,
-        other_collider: &Collider
-    ) -> Self {
-        CollisionBeganEvent {
-            entity: entity,
-            other_position: other_transform.translation.truncate(),
-            other_velocity: other_physics.velocity,
-            other_mass: other_physics.mass,
-            other_radius: other_collider.radius
-        }
-    }
-}
-
-impl EventConstructor for CollisionUpdateEvent {
-    fn new(
-        entity: Entity,
-        other_transform: &Transform,
-        other_physics: &Physics,
-        other_collider: &Collider
-    ) -> Self {
-        CollisionUpdateEvent {
-            entity: entity,
-            other_position: other_transform.translation.truncate(),
-            other_velocity: other_physics.velocity,
-            other_mass: other_physics.mass,
-            other_radius: other_collider.radius
-        }
-    }
-}
-
-impl EventConstructor for CollisionEndedEvent {
-    fn new(
-        entity: Entity,
-        other_transform: &Transform,
-        other_physics: &Physics,
-        other_collider: &Collider
-    ) -> Self {
-        CollisionEndedEvent {
-            entity: entity,
-            other_position: other_transform.translation.truncate(),
-            other_velocity: other_physics.velocity,
-            other_mass: other_physics.mass,
-            other_radius: other_collider.radius
-        }
-    }
+#[derive(Resource)]
+struct CollisionCache {
+    potential_pairs: HashSet<CollisionPair>,
+    live_pairs: HashMap<CollisionPair, CollisionMetadata>
 }
 
 #[derive(Copy, Clone)]
 struct CollisionPair {
     entity_a: Entity,
     entity_b: Entity
+}
+
+struct CollisionMetadata {
+    is_first_frame: bool
 }
 
 impl Hash for CollisionPair {
@@ -163,27 +113,84 @@ impl PartialEq for CollisionPair {
 
 impl Eq for CollisionPair {}
 
-fn collision_update_step(
-    query: Query<(Entity, &Physics, &Collider, &Transform)>,
-    mut cache: ResMut<CollisionCache>,
-    start_event_writer: EventWriter<CollisionBeganEvent>,
-    update_event_writer: EventWriter<CollisionUpdateEvent>,
-    end_event_writer: EventWriter<CollisionEndedEvent>
+fn run_startup_step(
+    mut query_set: ParamSet<(
+        Query<(&mut Physics, &mut Transform)>,
+        Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
+        Query<(&Transform, &CircleCollider)>,
+        Query<(&mut Transform, &mut Physics, &CircleCollider)>
+    )>,
+    mut cache: ResMut<CollisionCache>
 ) {
-    broad_phase(&query, &mut cache);
-    narrow_phase(&query, &mut cache, start_event_writer, update_event_writer, end_event_writer);
+    for i in 0..10 {
+        resolve_collisions(&mut query_set, &mut cache);
+    }
+
+    for (mut physics, transform) in query_set.p0().iter_mut() {
+        physics.prev_pos = transform.translation.truncate();
+    }
 }
 
-// From frame-to-frame, expects the cache to have been cleared
-fn broad_phase(
-    query: &Query<(Entity, &Physics, &Collider, &Transform)>,
+fn run_step(
+    mut query_set: ParamSet<(
+        Query<(&mut Physics, &mut Transform)>,
+        Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
+        Query<(&Transform, &CircleCollider)>,
+        Query<(&mut Transform, &mut Physics, &CircleCollider)>
+    )>,
+    mut cache: ResMut<CollisionCache>,
+    time: Res<Time>
+) {
+    let iters = 10;
+    let dt = time.delta_seconds() / iters as f32;
+    for i in 0..iters {
+        integration_phase(&mut query_set.p0(), dt);
+        resolve_collisions(&mut query_set, &mut cache);
+    }
+}
+
+fn resolve_collisions(
+    query_set: &mut ParamSet<(
+        Query<(&mut Physics, &mut Transform)>,
+        Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
+        Query<(&Transform, &CircleCollider)>,
+        Query<(&mut Transform, &mut Physics, &CircleCollider)>
+    )>,
     cache: &mut ResMut<CollisionCache>
 ) {
-    // TODO: Should I be saving this memory?? (This should actually disappear with spacial partitioning)
+    broad_phase(&query_set.p1(), cache);
+    narrow_phase(&query_set.p2(), cache);
+    resolve_phase(&mut query_set.p3(), cache);
+}
+
+fn integration_phase(
+    query: &mut Query<(&mut Physics, &mut Transform)>,
+    dt: f32
+) {
+    for (mut physics, mut transform) in query.iter_mut() {
+        let cur_pos = transform.translation;
+        let acceleration = physics.force / physics.mass;
+        transform.translation = 2.0 * transform.translation - physics.prev_pos.extend(0.0) + acceleration.extend(0.0) * dt * dt;
+        physics.prev_pos = cur_pos.truncate();
+    }
+}
+
+// TODO: Should I be saving memory?? (Might actually disappear with spacial partitioning?)
+// From frame-to-frame, expects the cache to have been cleared
+// How to rerun some of these systems multiple times?
+// Running the whole system over all memory is a waste with few overlaps, but random access blasts cache
+// Obviously, we should try to run some benchmarks
+// Part of the issue is that if an object has nowhere to go, then it will constantly fight with its
+// neighbors for space. If they cannot move to accommodate, then no space will open to stop the
+// jittering. Having velocities causes initial displacement, which then prompts the fighting.
+fn broad_phase(
+    query: &Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
+    cache: &mut ResMut<CollisionCache>
+) {
     let mut seen_pairs = HashSet::new();
 
-    for (entity_a, _, collidable_a, transform_a) in query.iter() {
-        for (entity_b, _, collidable_b, transform_b) in query.iter() {
+    for (entity_a, aabb_a, transform_a) in query.iter() {
+        for (entity_b, aabb_b, transform_b) in query.iter() {
             let pair = CollisionPair {
                 entity_a: entity_a,
                 entity_b: entity_b
@@ -193,13 +200,15 @@ fn broad_phase(
                 continue;
             }
 
-            // TODO: SIMD
-            let half_bound_a = collidable_a.bounds.extend(0.0) / 2.0;
-            let half_bound_b = collidable_b.bounds.extend(0.0) / 2.0;
-            let a_min = transform_a.translation - half_bound_a;
-            let a_max = transform_a.translation + half_bound_a;
-            let b_min = transform_b.translation - half_bound_b;
-            let b_max = transform_b.translation + half_bound_b;
+            // TODO: SIMD, Can remove the divide by 2.0
+            let half_bound_a = aabb_a.bounds / 2.0;
+            let half_bound_b = aabb_b.bounds / 2.0;
+            let translation_a = transform_a.translation.truncate();
+            let translation_b = transform_b.translation.truncate();
+            let a_min = translation_a - half_bound_a;
+            let a_max = translation_a + half_bound_a;
+            let b_min = translation_b - half_bound_b;
+            let b_max = translation_b + half_bound_b;
 
             if a_min.x > b_max.x || a_max.x < b_min.x || a_min.y > b_max.y || a_max.y < b_min.y {
                 continue;
@@ -212,90 +221,107 @@ fn broad_phase(
 }
 
 fn narrow_phase(
-    query: &Query<(Entity, &Physics, &Collider, &Transform)>,
-    cache: &mut ResMut<CollisionCache>,
-    mut start_event_writer: EventWriter<CollisionBeganEvent>,
-    mut update_event_writer: EventWriter<CollisionUpdateEvent>,
-    mut end_event_writer: EventWriter<CollisionEndedEvent>
+    query: &Query<(&Transform, &CircleCollider)>,
+    cache: &mut ResMut<CollisionCache>
 ) {
     let CollisionCache { potential_pairs, live_pairs } = cache.as_mut();
-
-    live_pairs.retain(|pair| {
-        let potentially_colliding = potential_pairs.contains(pair);
-
-        if !potentially_colliding {
-            let (entity_a, physics_a, collidable_a, transform_a) = match query.get(pair.entity_a) {
-                Ok(entity) => entity,
-                Err(_) => { return false; }
-            };
-    
-            let (entity_b, physics_b, collidable_b, transform_b) = match query.get(pair.entity_b) {
-                Ok(entity) => entity,
-                Err(_) => { return false; }
-            };
-
-            end_event_writer.send(CollisionEndedEvent::new(entity_a, transform_b, physics_b, collidable_b));
-            end_event_writer.send(CollisionEndedEvent::new(entity_b, transform_a, physics_a, collidable_a));
-        }
-
-        potentially_colliding
-    });
+    live_pairs.retain(|pair, _| potential_pairs.contains(pair));
 
     for pair in potential_pairs.drain() {
-        let (entity_a, physics_a, collidable_a, transform_a) = match query.get(pair.entity_a) {
+        let (transform_a, collidable_a) = match query.get(pair.entity_a) {
             Ok(entity) => entity,
             Err(_) => continue
         };
 
-        let (entity_b, physics_b, collidable_b, transform_b) = match query.get(pair.entity_b) {
+        let (transform_b, collidable_b) = match query.get(pair.entity_b) {
             Ok(entity) => entity,
             Err(_) => continue
         };
 
         let are_colliding = transform_a.translation.truncate().distance(transform_b.translation.truncate()) < collidable_a.radius + collidable_b.radius;
+        let in_cache = live_pairs.contains_key(&pair);
 
-        if are_colliding && !live_pairs.contains(&pair) {
-            start_event_writer.send(CollisionBeganEvent::new(entity_a, transform_b, physics_b, collidable_b));
-            start_event_writer.send(CollisionBeganEvent::new(entity_b, transform_a, physics_a, collidable_a));
-            live_pairs.insert(pair);
-        } else if are_colliding && live_pairs.contains(&pair) {
-            update_event_writer.send(CollisionUpdateEvent::new(entity_a, transform_b, physics_b, collidable_b));
-            update_event_writer.send(CollisionUpdateEvent::new(entity_b, transform_a, physics_a, collidable_a));
-        } else if !are_colliding && live_pairs.contains(&pair) {
-            end_event_writer.send(CollisionEndedEvent::new(entity_a, transform_b, physics_b, collidable_b));
-            end_event_writer.send(CollisionEndedEvent::new(entity_b, transform_a, physics_a, collidable_a));
+        if are_colliding && !in_cache {
+            live_pairs.insert(pair, CollisionMetadata { is_first_frame: true });
+        } else if !are_colliding && in_cache {
             live_pairs.remove(&pair);
+        } else {
+            match live_pairs.get_mut(&pair) {
+                Some(metadata) => {
+                    metadata.is_first_frame = false;
+                },
+                None => {}
+            }
+        }
+    }
+}
+
+fn resolve_phase(
+    query: &mut Query<(&mut Transform, &mut Physics, &CircleCollider)>,
+    cache: &mut ResMut<CollisionCache>
+) {
+    for (pair, metadata) in cache.live_pairs.iter_mut() {
+        let [
+            (mut transform_a, mut physics_a, collidable_a),
+            (mut transform_b, mut physics_b, collidable_b)
+        ] = match query.get_many_mut([pair.entity_a, pair.entity_b]) {
+            Ok(entities) => entities,
+            Err(_) => continue
+        };
+
+        let mut separation_vector = transform_b.translation - transform_a.translation;
+        let are_colliding = transform_a.translation.distance(transform_b.translation) < collidable_a.radius + collidable_b.radius;
+
+        if !are_colliding {
+            continue;
+        }
+
+        let overlap = (collidable_a.radius + collidable_b.radius - separation_vector.length()) / 2.0;
+
+        if overlap <= f32::EPSILON {
+            separation_vector = Vec3::new(2.0 * random::<f32>() - 1.0, 2.0 * random::<f32>() - 1.0, 0.0);
+        }
+
+        let resolve_direction = separation_vector.normalize();
+        let resolve_vector = overlap * resolve_direction;
+        transform_b.translation += resolve_vector;
+        transform_a.translation -= resolve_vector;
+
+        if metadata.is_first_frame {
+            metadata.is_first_frame = false;
         }
     }
 }
 
 fn debug_collision_update_step(
-    query: Query<(Entity, &Collider, &Transform)>,
-    mut start_event_reader: EventReader<CollisionBeganEvent>,
-    mut update_event_reader: EventReader<CollisionUpdateEvent>,
-    mut end_event_reader: EventReader<CollisionEndedEvent>,
+    query: Query<(&AxisAlignedBoundingBox, &Transform)>,
     mut shapes: ResMut<DebugShapes>
 ) {
-    let mut colors = HashMap::new();
-
-    for event in start_event_reader.iter() {
-        colors.insert(event.entity, Color::RED);
-    }
-
-    for event in update_event_reader.iter() {
-        colors.insert(event.entity, Color::YELLOW);
-    }
-
-    for event in end_event_reader.iter() {
-        colors.insert(event.entity, Color::GREEN);
-    }
-
-    for (entity, collidable, transform) in query.iter() {
-        let color = colors.get(&entity).unwrap_or(&Color::WHITE);
-
+    for (aabb, transform) in query.iter() {
         shapes.rect()
             .position(transform.translation)
-            .size(collidable.bounds)
-            .color(color.clone());
+            .size(aabb.bounds)
+            .color(Color::WHITE);
+    }
+}
+
+fn debug_physics_update_step(
+    query: Query<(&Physics, &Transform)>,
+    mut lines: ResMut<DebugLines>
+) {
+    for (physics, transform) in query.iter() {
+        lines.line_colored(
+            transform.translation,
+            transform.translation + (transform.translation.truncate() - physics.prev_pos).extend(0.0),
+            0.0,
+            Color::YELLOW
+        );
+
+        lines.line_colored(
+            transform.translation,
+            transform.translation + physics.force.extend(0.0),
+            0.0,
+            Color::RED
+        );
     }
 }

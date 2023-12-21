@@ -1,6 +1,7 @@
-use super::physics::Physics;
+use super::collision::Physics;
 use bevy::app::{App, Plugin, PreUpdate};
-use bevy::ecs::system::Query;
+use bevy::ecs::system::{Query, Res};
+use bevy::time::Time;
 use bevy::transform::components::Transform;
 
 pub struct GravityPlugin;
@@ -18,10 +19,11 @@ impl Default for GravityPlugin {
 }
 
 fn gravity_update_step(
-    mut query: Query<(&mut Physics, &Transform)>
+    mut query: Query<(&mut Physics, &Transform)>,
+    time: Res<Time>
 ) {
+    let direction = 50.0 - (time.elapsed_seconds() % 60.0);
     for (mut physics, transform) in query.iter_mut() {
-        let dist = transform.translation.length().min(50.0);
-        physics.force = 0.75 * -dist * transform.translation.truncate().normalize();
+        physics.force = -10.0 * direction * transform.translation.truncate().normalize();
     }
 }
