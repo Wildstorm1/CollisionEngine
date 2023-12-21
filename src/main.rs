@@ -132,8 +132,8 @@ fn load_startup_elements(
 
         let material = materials.add(ColorMaterial::from(color)).into();
         let pos = Transform::IDENTITY.with_translation(Vec3::new(
-            2500.0 * (2.0 * random::<f32>() - 1.0),
-            2500.0 * (2.0 * random::<f32>() - 1.0),
+            750.0 * (2.0 * random::<f32>() - 1.0),
+            750.0 * (2.0 * random::<f32>() - 1.0),
             0.0
         ));
 

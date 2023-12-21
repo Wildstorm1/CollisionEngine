@@ -42,12 +42,6 @@ pub struct CircleCollider {
 }
 
 #[derive(Bundle)]
-pub struct StaticBoxColliderBundle {
-    pub aabb: AxisAlignedBoundingBox,
-    pub transform: Transform
-}
-
-#[derive(Bundle)]
 pub struct CircleColliderBundle {
     pub aabb: AxisAlignedBoundingBox,
     pub collider: CircleCollider
@@ -291,6 +285,11 @@ fn resolve_phase(
             metadata.is_first_frame = false;
         }
     }
+
+    for entity in query.iter_mut() {
+        let (mut transform, _, _) = entity;
+        transform.translation = transform.translation.clamp(Vec3::new(-800.0, -800.0, 0.0), Vec3::new(800.0, 800.0, 0.0));
+    }
 }
 
 fn debug_collision_update_step(
@@ -310,13 +309,6 @@ fn debug_physics_update_step(
     mut lines: ResMut<DebugLines>
 ) {
     for (physics, transform) in query.iter() {
-        lines.line_colored(
-            transform.translation,
-            transform.translation + (transform.translation.truncate() - physics.prev_pos).extend(0.0),
-            0.0,
-            Color::YELLOW
-        );
-
         lines.line_colored(
             transform.translation,
             transform.translation + physics.force.extend(0.0),
