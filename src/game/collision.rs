@@ -3,6 +3,7 @@ use bevy::ecs::bundle::Bundle;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::schedule::IntoSystemConfigs;
+use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::ecs::system::{Query, ResMut, Resource, ParamSet, Res};
 use bevy::prelude::Transform;
@@ -48,22 +49,37 @@ pub struct CircleColliderBundle {
 }
 
 pub struct CollisionPlugin {
-    pub enable_debug: bool
+    pub enable_debug: bool,
+    grid_size: f32,
+    cell_size: f32
 }
 
 impl Plugin for CollisionPlugin {
     fn build(&self, app: &mut App) {
         let debug_flag = self.enable_debug;
 
+        let cells_x = (self.grid_size / self.cell_size) as usize;
+        let cells_y = cells_x;
+        let mut grid = Vec::with_capacity(cells_x * cells_y);
+
+        for _ in 0..(cells_x * cells_y) {
+            grid.push(Vec::with_capacity(1));
+        }
+
         app.insert_resource(CollisionCache {
                 potential_pairs: HashSet::with_capacity(200),
-                live_pairs: HashMap::with_capacity(100)
+                live_pairs: HashMap::with_capacity(100),
+                grid: grid,
+                grid_root: Vec2::new(-self.grid_size / 2.0, -self.grid_size / 2.0),
+                grid_size: Vec2::new(self.grid_size, self.grid_size),
+                cell_size: Vec2::new(self.cell_size, self.cell_size)
             })
             .add_systems(PostStartup, run_startup_step)
             .add_systems(Update, run_step)
             .add_systems(PostUpdate, (
                 debug_collision_update_step.run_if(move || debug_flag),
-                debug_physics_update_step.run_if(move || debug_flag)
+                debug_physics_update_step.run_if(move || debug_flag),
+                debug_grid_update_step.run_if(move || debug_flag)
             ));
     }
 }
@@ -71,7 +87,18 @@ impl Plugin for CollisionPlugin {
 impl Default for CollisionPlugin {
     fn default() -> Self {
         CollisionPlugin {
-            enable_debug: false
+            enable_debug: false,
+            grid_size: 1800.0, // 1650
+            cell_size: 150.0 //100.0 // 25.0
+        }
+    }
+}
+
+impl CollisionPlugin {
+    pub fn with_debug() -> Self {
+        CollisionPlugin {
+            enable_debug: true,
+            ..Default::default()
         }
     }
 }
@@ -79,10 +106,14 @@ impl Default for CollisionPlugin {
 #[derive(Resource)]
 struct CollisionCache {
     potential_pairs: HashSet<CollisionPair>,
-    live_pairs: HashMap<CollisionPair, CollisionMetadata>
+    live_pairs: HashMap<CollisionPair, CollisionMetadata>,
+    grid: Vec<Vec<Entity>>,
+    grid_root: Vec2,
+    grid_size: Vec2,
+    cell_size: Vec2
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 struct CollisionPair {
     entity_a: Entity,
     entity_b: Entity
@@ -177,10 +208,37 @@ fn integration_phase(
 // Part of the issue is that if an object has nowhere to go, then it will constantly fight with its
 // neighbors for space. If they cannot move to accommodate, then no space will open to stop the
 // jittering. Having velocities causes initial displacement, which then prompts the fighting.
+// TODO: I should consider handling objects going outside the grid safely (ie, ignore them or something)
+// TODO: Would be better to detect if the cell changed than reconstruct each time
+// Should maybe not count the collision as a change in position?
+// Verlet fails at high speeds
+/*
 fn broad_phase(
     query: &Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
     cache: &mut ResMut<CollisionCache>
 ) {
+    let CollisionCache {
+        potential_pairs,
+        grid,
+        grid_root,
+        grid_size,
+        cell_size,
+        ..
+    } = cache.as_mut();
+
+    let cells_x = (grid_size.x / cell_size.x) as usize;
+    let cells_y = (grid_size.y / cell_size.y) as usize;
+
+    grid.iter_mut().for_each(|cell| { cell.drain(0..); () });
+
+    for (entity, _, transform) in query.iter() {
+        let coord = ((transform.translation.truncate() + (*grid_size / 2.0)) / *cell_size).floor();
+        let cell_x = coord.x as usize;
+        let cell_y = coord.y as usize;
+        let i = cell_x + cell_y * cells_x;
+        grid[i].push(entity);
+    }
+
     let mut seen_pairs = HashSet::new();
 
     for (entity_a, aabb_a, transform_a) in query.iter() {
@@ -213,12 +271,91 @@ fn broad_phase(
         }
     }
 }
+*/
+
+fn broad_phase(
+    query: &Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
+    cache: &mut ResMut<CollisionCache>
+) {
+    let CollisionCache {
+        potential_pairs,
+        grid,
+        grid_root,
+        grid_size,
+        cell_size,
+        ..
+    } = cache.as_mut();
+
+    let cells_x = (grid_size.x / cell_size.x) as usize;
+    let cells_y = (grid_size.y / cell_size.y) as usize;
+
+    grid.iter_mut().for_each(|cell| { cell.drain(0..); () });
+
+    for (entity, _, transform) in query.iter() {
+        let coord = ((transform.translation.truncate() + (*grid_size / 2.0)) / *cell_size).floor();
+        let cell_x = coord.x as usize;
+        let cell_y = coord.y as usize;
+        let i = cell_x + cell_y * cells_x;
+        grid[i].push(entity);
+    }
+
+    let mut seen_pairs = HashSet::new();
+
+    for (entity_a, aabb_a, transform_a) in query.iter() {
+        let coord = ((transform_a.translation.truncate() + (*grid_size / 2.0)) / *cell_size).floor();
+        let cell_x = coord.x as usize;
+        let cell_y = coord.y as usize;
+
+        for x in cell_x.saturating_sub(1)..(cell_x + 1).min(cells_x) {
+            for y in cell_y.saturating_sub(1)..(cell_y + 1).min(cells_y) {
+                let i = x + y * cells_x;
+
+                for cell_entity in grid[i].iter() {
+                    let (entity_b, aabb_b, transform_b) = match query.get(*cell_entity) {
+                        Ok(entity) => entity,
+                        Err(_) => continue
+                    };
+
+                    let pair = CollisionPair {
+                        entity_a: entity_a,
+                        entity_b: entity_b
+                    };
+
+                    if entity_a == entity_b || seen_pairs.contains(&pair) {
+                        continue;
+                    }
+
+                    // TODO: SIMD, Can remove the divide by 2.0
+                    let half_bound_a = aabb_a.bounds / 2.0;
+                    let half_bound_b = aabb_b.bounds / 2.0;
+                    let translation_a = transform_a.translation.truncate();
+                    let translation_b = transform_b.translation.truncate();
+                    let a_min = translation_a - half_bound_a;
+                    let a_max = translation_a + half_bound_a;
+                    let b_min = translation_b - half_bound_b;
+                    let b_max = translation_b + half_bound_b;
+
+                    if a_min.x > b_max.x || a_max.x < b_min.x || a_min.y > b_max.y || a_max.y < b_min.y {
+                        continue;
+                    }
+
+                    potential_pairs.insert(pair);
+                    seen_pairs.insert(pair);
+                }
+            }
+        }
+    }
+}
 
 fn narrow_phase(
     query: &Query<(&Transform, &CircleCollider)>,
     cache: &mut ResMut<CollisionCache>
 ) {
-    let CollisionCache { potential_pairs, live_pairs } = cache.as_mut();
+    let CollisionCache {
+        potential_pairs,
+        live_pairs,
+        ..
+    } = cache.as_mut();
     live_pairs.retain(|pair, _| potential_pairs.contains(pair));
 
     for pair in potential_pairs.drain() {
@@ -254,7 +391,16 @@ fn resolve_phase(
     query: &mut Query<(&mut Transform, &mut Physics, &CircleCollider)>,
     cache: &mut ResMut<CollisionCache>
 ) {
-    for (pair, metadata) in cache.live_pairs.iter_mut() {
+    let CollisionCache {
+        potential_pairs,
+        grid,
+        grid_root,
+        grid_size,
+        cell_size,
+        live_pairs
+    } = cache.as_mut();
+
+    for (pair, metadata) in live_pairs.iter_mut() {
         let [
             (mut transform_a, mut physics_a, collidable_a),
             (mut transform_b, mut physics_b, collidable_b)
@@ -271,6 +417,26 @@ fn resolve_phase(
         }
 
         let overlap = (collidable_a.radius + collidable_b.radius - separation_vector.length()) / 2.0;
+
+        if overlap > (collidable_a.radius + collidable_b.radius) / 16.0 {
+            let coord_a = ((transform_a.translation.truncate() + (*grid_size / 2.0)) / *cell_size).floor();
+            let cell_x_a = coord_a.x as usize;
+            let cell_y_a = coord_a.y as usize;
+            let coord_b = ((transform_b.translation.truncate() + (*grid_size / 2.0)) / *cell_size).floor();
+            let cell_x_b = coord_b.x as usize;
+            let cell_y_b = coord_b.y as usize;
+            /*info!("Collision detected");
+            info!("Cell a: {:?}", pair.entity_a);
+            info!("Cell b: {:?}", pair.entity_b);
+            info!("Dist: {:?}", separation_vector);
+            info!("Len: {:?}", separation_vector.length());
+            info!("Cell a: {:?}", transform_a.translation);
+            info!("Cell b: {:?}", transform_b.translation);
+            info!("Cell a: {:?}", collidable_a.radius);
+            info!("Cell b: {:?}", collidable_b.radius);
+            info!("Cell a: {:?} {:?}", cell_x_a, cell_y_a);
+            info!("Cell b: {:?} {:?}", cell_x_b, cell_y_b);*/
+        }
 
         if overlap <= f32::EPSILON {
             separation_vector = Vec3::new(2.0 * random::<f32>() - 1.0, 2.0 * random::<f32>() - 1.0, 0.0);
@@ -301,6 +467,31 @@ fn debug_collision_update_step(
             .position(transform.translation)
             .size(aabb.bounds)
             .color(Color::WHITE);
+    }
+}
+
+fn debug_grid_update_step(
+    cache: ResMut<CollisionCache>,
+    mut shapes: ResMut<DebugShapes>
+) {
+    let cells_x = (cache.grid_size.x / cache.cell_size.x) as usize;
+    let cells_y = (cache.grid_size.y / cache.cell_size.y) as usize;
+    let render_size = cache.cell_size - Vec2::new(0.5, 0.5);
+
+    for cell_x in 0..cells_x {
+        for cell_y in 0..cells_y {
+            let i = cell_x + cell_y * cells_x;
+            let mut color = Color::WHITE;
+
+            if cache.grid[i].len() > 0 {
+                color = Color::RED;
+            }
+
+            shapes.rect()
+                .position((cache.grid_root + (cache.cell_size / 2.0) + Vec2::new(cell_x as f32, cell_y as f32) * cache.cell_size).extend(0.0))
+                .size(render_size)
+                .color(color);
+        }
     }
 }
 

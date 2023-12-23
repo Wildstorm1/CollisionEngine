@@ -114,7 +114,7 @@ fn load_startup_elements(
     let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
     commands.spawn(Camera2dBundle::default());
 
-    for _ in 0..400 {
+    for _ in 0..2000 {
         let lo_r = 20.0 * (0.5 + (0.0 / 2.0));
         let hi_r = 20.0 * (0.5 + (1.0 / 2.0));
         let lo_m = 0.15 * lo_r * (0.0 + 1.0);
