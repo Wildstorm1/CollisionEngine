@@ -87,7 +87,7 @@ impl Default for CollisionPlugin {
     fn default() -> Self {
         CollisionPlugin {
             enable_debug: false,
-            grid_size: 2080.0,
+            grid_size: 280.0,
             cell_size: 40.0
         }
     }
@@ -148,7 +148,7 @@ fn run_step(
     mut cache: ResMut<CollisionCache>,
     time: Res<Time>
 ) {
-    let iters = 10;
+    let iters = 8;
     let dt = time.delta_seconds() / iters as f32;
     for i in 0..iters {
         integration_phase(&mut query_set.p0(), dt);
@@ -227,16 +227,8 @@ fn broad_phase(
         let cell_x = coord.x as usize;
         let cell_y = coord.y as usize;
 
-        //for x in cell_x.saturating_sub(1)..(cell_x + 1).min(cells_x) {
-        //    for y in cell_y.saturating_sub(1)..(cell_y + 1).min(cells_y) {
-        for xi in -1..=1 {
-            for yi in -1..=1 {
-                if cell_x as i32 + xi < 0 || cell_x as i32 + xi >= cells_x as i32 || cell_y as i32 + yi < 0 || cell_y as i32 + yi >= cells_y as i32 {
-                    continue;
-                }
-
-                let x = (cell_x as i32 + xi) as usize;
-                let y = (cell_y as i32 + yi) as usize;
+        for x in cell_x.saturating_sub(1)..=(cell_x + 1).min(cells_x - 1) {
+            for y in cell_y.saturating_sub(1)..=(cell_y + 1).min(cells_y - 1) {
                 let i = x + y * cells_x;
 
                 for cell_entity in grid[i].iter() {
@@ -348,8 +340,8 @@ fn resolve_phase(
             separation_vector = Vec3::new(2.0 * random::<f32>() - 1.0, 2.0 * random::<f32>() - 1.0, 0.0);
         }
 
-        let speed_a = 0.90 * (transform_a.translation.truncate() - physics_a.prev_pos).length();
-        let speed_b = 0.90 * (transform_b.translation.truncate() - physics_b.prev_pos).length();
+        let speed_a = 0.9 * (transform_a.translation.truncate() - physics_a.prev_pos).length();
+        let speed_b = 0.9 * (transform_b.translation.truncate() - physics_b.prev_pos).length();
 
         let resolve_direction = separation_vector.normalize();
         let resolve_vector = overlap * resolve_direction;
