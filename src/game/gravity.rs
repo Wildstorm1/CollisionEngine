@@ -22,7 +22,7 @@ fn gravity_update_step(
     mut query: Query<(&mut Physics, &Transform)>,
     time: Res<Time>
 ) {
-    let direction = 30.0; //7.0 - (time.elapsed_seconds() % 12.0);
+    let direction = 7.0 - (time.elapsed_seconds() % 12.0);
     for (mut physics, transform) in query.iter_mut() {
         physics.force = -50.0 * direction * transform.translation.truncate().normalize();
     }

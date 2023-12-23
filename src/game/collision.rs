@@ -71,7 +71,8 @@ impl Plugin for CollisionPlugin {
                 grid: grid,
                 grid_root: Vec2::new(-self.grid_size / 2.0, -self.grid_size / 2.0),
                 grid_size: Vec2::new(self.grid_size, self.grid_size),
-                cell_size: Vec2::new(self.cell_size, self.cell_size)
+                cell_size: Vec2::new(self.cell_size, self.cell_size),
+                bounding_size: Vec2::new(self.grid_size - 2.0 * self.cell_size, self.grid_size - 2.0 * self.cell_size)
             })
             .add_systems(Update, run_step)
             .add_systems(PostUpdate, (
@@ -86,8 +87,8 @@ impl Default for CollisionPlugin {
     fn default() -> Self {
         CollisionPlugin {
             enable_debug: false,
-            grid_size: 1800.0, // 1650
-            cell_size: 50.0
+            grid_size: 2080.0,
+            cell_size: 40.0
         }
     }
 }
@@ -108,7 +109,8 @@ struct CollisionCache {
     grid: Vec<Vec<Entity>>,
     grid_root: Vec2,
     grid_size: Vec2,
-    cell_size: Vec2
+    cell_size: Vec2,
+    bounding_size: Vec2
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -193,7 +195,6 @@ fn integration_phase(
 // Should maybe not count the collision as a change in position?
 // Verlet fails at high speeds
 // Solved jitter problem with multiple passes and a method that doesn't use first class velocity
-/*
 fn broad_phase(
     query: &Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
     cache: &mut ResMut<CollisionCache>
@@ -201,67 +202,6 @@ fn broad_phase(
     let CollisionCache {
         potential_pairs,
         grid,
-        grid_root,
-        grid_size,
-        cell_size,
-        ..
-    } = cache.as_mut();
-
-    let cells_x = (grid_size.x / cell_size.x) as usize;
-    let cells_y = (grid_size.y / cell_size.y) as usize;
-
-    grid.iter_mut().for_each(|cell| { cell.drain(0..); () });
-
-    for (entity, _, transform) in query.iter() {
-        let coord = ((transform.translation.truncate() + (*grid_size / 2.0)) / *cell_size).floor();
-        let cell_x = coord.x as usize;
-        let cell_y = coord.y as usize;
-        let i = cell_x + cell_y * cells_x;
-        grid[i].push(entity);
-    }
-
-    let mut seen_pairs = HashSet::new();
-
-    for (entity_a, aabb_a, transform_a) in query.iter() {
-        for (entity_b, aabb_b, transform_b) in query.iter() {
-            let pair = CollisionPair {
-                entity_a: entity_a,
-                entity_b: entity_b
-            };
-
-            if entity_a == entity_b || seen_pairs.contains(&pair) {
-                continue;
-            }
-
-            // TODO: SIMD, Can remove the divide by 2.0
-            let half_bound_a = aabb_a.bounds / 2.0;
-            let half_bound_b = aabb_b.bounds / 2.0;
-            let translation_a = transform_a.translation.truncate();
-            let translation_b = transform_b.translation.truncate();
-            let a_min = translation_a - half_bound_a;
-            let a_max = translation_a + half_bound_a;
-            let b_min = translation_b - half_bound_b;
-            let b_max = translation_b + half_bound_b;
-
-            if a_min.x > b_max.x || a_max.x < b_min.x || a_min.y > b_max.y || a_max.y < b_min.y {
-                continue;
-            }
-
-            cache.potential_pairs.insert(pair);
-            seen_pairs.insert(pair);
-        }
-    }
-}
-*/
-
-fn broad_phase(
-    query: &Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
-    cache: &mut ResMut<CollisionCache>
-) {
-    let CollisionCache {
-        potential_pairs,
-        grid,
-        grid_root,
         grid_size,
         cell_size,
         ..
@@ -287,8 +227,16 @@ fn broad_phase(
         let cell_x = coord.x as usize;
         let cell_y = coord.y as usize;
 
-        for x in cell_x.saturating_sub(1)..(cell_x + 1).min(cells_x) {
-            for y in cell_y.saturating_sub(1)..(cell_y + 1).min(cells_y) {
+        //for x in cell_x.saturating_sub(1)..(cell_x + 1).min(cells_x) {
+        //    for y in cell_y.saturating_sub(1)..(cell_y + 1).min(cells_y) {
+        for xi in -1..=1 {
+            for yi in -1..=1 {
+                if cell_x as i32 + xi < 0 || cell_x as i32 + xi >= cells_x as i32 || cell_y as i32 + yi < 0 || cell_y as i32 + yi >= cells_y as i32 {
+                    continue;
+                }
+
+                let x = (cell_x as i32 + xi) as usize;
+                let y = (cell_y as i32 + yi) as usize;
                 let i = x + y * cells_x;
 
                 for cell_entity in grid[i].iter() {
@@ -373,12 +321,9 @@ fn resolve_phase(
     cache: &mut ResMut<CollisionCache>
 ) {
     let CollisionCache {
-        potential_pairs,
-        grid,
-        grid_root,
-        grid_size,
-        cell_size,
-        live_pairs
+        live_pairs,
+        bounding_size,
+        ..
     } = cache.as_mut();
 
     for (pair, metadata) in live_pairs.iter_mut() {
@@ -403,8 +348,8 @@ fn resolve_phase(
             separation_vector = Vec3::new(2.0 * random::<f32>() - 1.0, 2.0 * random::<f32>() - 1.0, 0.0);
         }
 
-        let speed_a = 0.85 * (transform_a.translation.truncate() - physics_a.prev_pos).length();
-        let speed_b = 0.85 * (transform_b.translation.truncate() - physics_b.prev_pos).length();
+        let speed_a = 0.90 * (transform_a.translation.truncate() - physics_a.prev_pos).length();
+        let speed_b = 0.90 * (transform_b.translation.truncate() - physics_b.prev_pos).length();
 
         let resolve_direction = separation_vector.normalize();
         let resolve_vector = overlap * resolve_direction;
@@ -418,9 +363,12 @@ fn resolve_phase(
         }
     }
 
+    let lower = (-1.0 * *bounding_size / 2.0).extend(0.0);
+    let upper = (*bounding_size / 2.0).extend(0.0);
+
     for entity in query.iter_mut() {
         let (mut transform, _, _) = entity;
-        transform.translation = transform.translation.clamp(Vec3::new(-800.0, -800.0, 0.0), Vec3::new(800.0, 800.0, 0.0));
+        transform.translation = transform.translation.clamp(lower, upper);
     }
 }
 
