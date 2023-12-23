@@ -1,9 +1,8 @@
-use bevy::app::{App, Plugin, Update, PostUpdate, PostStartup};
+use bevy::app::{App, Plugin, Update, PostUpdate};
 use bevy::ecs::bundle::Bundle;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::schedule::IntoSystemConfigs;
-use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::ecs::system::{Query, ResMut, Resource, ParamSet, Res};
 use bevy::prelude::Transform;
@@ -74,7 +73,6 @@ impl Plugin for CollisionPlugin {
                 grid_size: Vec2::new(self.grid_size, self.grid_size),
                 cell_size: Vec2::new(self.cell_size, self.cell_size)
             })
-            .add_systems(PostStartup, run_startup_step)
             .add_systems(Update, run_step)
             .add_systems(PostUpdate, (
                 debug_collision_update_step.run_if(move || debug_flag),
@@ -89,7 +87,7 @@ impl Default for CollisionPlugin {
         CollisionPlugin {
             enable_debug: false,
             grid_size: 1800.0, // 1650
-            cell_size: 150.0 //100.0 // 25.0
+            cell_size: 50.0
         }
     }
 }
@@ -137,24 +135,6 @@ impl PartialEq for CollisionPair {
 }
 
 impl Eq for CollisionPair {}
-
-fn run_startup_step(
-    mut query_set: ParamSet<(
-        Query<(&mut Physics, &mut Transform)>,
-        Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
-        Query<(&Transform, &CircleCollider)>,
-        Query<(&mut Transform, &mut Physics, &CircleCollider)>
-    )>,
-    mut cache: ResMut<CollisionCache>
-) {
-    for i in 0..10 {
-        resolve_collisions(&mut query_set, &mut cache);
-    }
-
-    for (mut physics, transform) in query_set.p0().iter_mut() {
-        physics.prev_pos = transform.translation.truncate();
-    }
-}
 
 fn run_step(
     mut query_set: ParamSet<(
@@ -212,6 +192,7 @@ fn integration_phase(
 // TODO: Would be better to detect if the cell changed than reconstruct each time
 // Should maybe not count the collision as a change in position?
 // Verlet fails at high speeds
+// Solved jitter problem with multiple passes and a method that doesn't use first class velocity
 /*
 fn broad_phase(
     query: &Query<(Entity, &AxisAlignedBoundingBox, &Transform)>,
@@ -418,34 +399,19 @@ fn resolve_phase(
 
         let overlap = (collidable_a.radius + collidable_b.radius - separation_vector.length()) / 2.0;
 
-        if overlap > (collidable_a.radius + collidable_b.radius) / 16.0 {
-            let coord_a = ((transform_a.translation.truncate() + (*grid_size / 2.0)) / *cell_size).floor();
-            let cell_x_a = coord_a.x as usize;
-            let cell_y_a = coord_a.y as usize;
-            let coord_b = ((transform_b.translation.truncate() + (*grid_size / 2.0)) / *cell_size).floor();
-            let cell_x_b = coord_b.x as usize;
-            let cell_y_b = coord_b.y as usize;
-            /*info!("Collision detected");
-            info!("Cell a: {:?}", pair.entity_a);
-            info!("Cell b: {:?}", pair.entity_b);
-            info!("Dist: {:?}", separation_vector);
-            info!("Len: {:?}", separation_vector.length());
-            info!("Cell a: {:?}", transform_a.translation);
-            info!("Cell b: {:?}", transform_b.translation);
-            info!("Cell a: {:?}", collidable_a.radius);
-            info!("Cell b: {:?}", collidable_b.radius);
-            info!("Cell a: {:?} {:?}", cell_x_a, cell_y_a);
-            info!("Cell b: {:?} {:?}", cell_x_b, cell_y_b);*/
-        }
-
         if overlap <= f32::EPSILON {
             separation_vector = Vec3::new(2.0 * random::<f32>() - 1.0, 2.0 * random::<f32>() - 1.0, 0.0);
         }
 
+        let speed_a = 0.85 * (transform_a.translation.truncate() - physics_a.prev_pos).length();
+        let speed_b = 0.85 * (transform_b.translation.truncate() - physics_b.prev_pos).length();
+
         let resolve_direction = separation_vector.normalize();
         let resolve_vector = overlap * resolve_direction;
         transform_b.translation += resolve_vector;
+        physics_b.prev_pos = (transform_b.translation - speed_b * resolve_direction).truncate();
         transform_a.translation -= resolve_vector;
+        physics_a.prev_pos = (transform_a.translation + speed_a * resolve_direction).truncate();
 
         if metadata.is_first_frame {
             metadata.is_first_frame = false;
