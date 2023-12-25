@@ -114,7 +114,7 @@ fn load_startup_elements(
     let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
     commands.spawn(Camera2dBundle::default());
 
-    for i in 0..20 {
+    for i in 0..400 {
         let lo_r = 20.0 * (0.5 + (0.0 / 2.0));
         let hi_r = 20.0 * (0.5 + (1.0 / 2.0));
         let lo_m = 0.15 * lo_r * (0.0 + 1.0);
@@ -132,8 +132,8 @@ fn load_startup_elements(
 
         let material = materials.add(ColorMaterial::from(color)).into();
         let pos = Transform::IDENTITY.with_translation(Vec3::new(
-            100.0 * (2.0 * random::<f32>() - 1.0),
-            100.0 * (2.0 * random::<f32>() - 1.0),
+            300.0 * (2.0 * random::<f32>() - 1.0),
+            300.0 * (2.0 * random::<f32>() - 1.0),
             0.0
         ));
 
@@ -144,10 +144,11 @@ fn load_startup_elements(
                 transform: pos,
                 ..default()
             },
-            physics: Physics::new(
+            physics: Physics::with_velocity(
                 Vec2::ZERO,
                 mass,
-                pos
+                pos,
+                Vec2::ZERO //-0.35 * pos.translation.truncate().normalize()
             ),
             collider: CircleColliderBundle {
                 aabb: AxisAlignedBoundingBox {

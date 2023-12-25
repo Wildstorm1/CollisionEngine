@@ -3,11 +3,12 @@ use bevy::ecs::bundle::Bundle;
 use bevy::ecs::component::Component;
 use bevy::ecs::entity::Entity;
 use bevy::ecs::schedule::IntoSystemConfigs;
+use bevy::log::info;
 use bevy::math::{Vec2, Vec3};
 use bevy::ecs::system::{Query, ResMut, Resource, ParamSet, Res};
 use bevy::prelude::Transform;
 use bevy::render::color::Color;
-use bevy::time::Time;
+use bevy::time::{Time, Timer, TimerMode};
 use bevy_prototype_debug_lines::{DebugShapes, DebugLines};
 use std::hash::{Hash, Hasher};
 use std::ops::BitXor;
@@ -27,6 +28,14 @@ impl Physics {
             force: force,
             mass: mass,
             prev_pos: position.translation.truncate()
+        }
+    }
+
+    pub fn with_velocity(force: Vec2, mass: f32, position: Transform, velocity: Vec2) -> Self {
+        Physics {
+            force: force,
+            mass: mass,
+            prev_pos: position.translation.truncate() - velocity
         }
     }
 }
@@ -72,13 +81,16 @@ impl Plugin for CollisionPlugin {
                 grid_root: Vec2::new(-self.grid_size / 2.0, -self.grid_size / 2.0),
                 grid_size: Vec2::new(self.grid_size, self.grid_size),
                 cell_size: Vec2::new(self.cell_size, self.cell_size),
-                bounding_size: Vec2::new(self.grid_size - 2.0 * self.cell_size, self.grid_size - 2.0 * self.cell_size)
+                bounding_size: Vec2::new(self.grid_size - 2.0 * self.cell_size, self.grid_size - 2.0 * self.cell_size),
+                time_step: 1.0,
+                logger: Timer::from_seconds(2.0, TimerMode::Repeating)
             })
             .add_systems(Update, run_step)
             .add_systems(PostUpdate, (
                 debug_collision_update_step.run_if(move || debug_flag),
                 debug_physics_update_step.run_if(move || debug_flag),
-                debug_grid_update_step.run_if(move || debug_flag)
+                debug_grid_update_step.run_if(move || debug_flag),
+                debug_momentum_step.run_if(move || debug_flag)
             ));
     }
 }
@@ -87,7 +99,7 @@ impl Default for CollisionPlugin {
     fn default() -> Self {
         CollisionPlugin {
             enable_debug: false,
-            grid_size: 280.0,
+            grid_size: 680.0,
             cell_size: 40.0
         }
     }
@@ -110,7 +122,9 @@ struct CollisionCache {
     grid_root: Vec2,
     grid_size: Vec2,
     cell_size: Vec2,
-    bounding_size: Vec2
+    bounding_size: Vec2,
+    time_step: f32,
+    logger: Timer
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -150,9 +164,10 @@ fn run_step(
 ) {
     let iters = 8;
     let dt = time.delta_seconds() / iters as f32;
+    cache.time_step = dt;
     for i in 0..iters {
-        integration_phase(&mut query_set.p0(), dt);
         resolve_collisions(&mut query_set, &mut cache);
+        integration_phase(&mut query_set.p0(), dt);
     }
 }
 
@@ -340,6 +355,7 @@ fn resolve_phase(
             separation_vector = Vec3::new(2.0 * random::<f32>() - 1.0, 2.0 * random::<f32>() - 1.0, 0.0);
         }
 
+        /*
         let speed_a = 0.9 * (transform_a.translation.truncate() - physics_a.prev_pos).length();
         let speed_b = 0.9 * (transform_b.translation.truncate() - physics_b.prev_pos).length();
 
@@ -349,6 +365,28 @@ fn resolve_phase(
         physics_b.prev_pos = (transform_b.translation - speed_b * resolve_direction).truncate();
         transform_a.translation -= resolve_vector;
         physics_a.prev_pos = (transform_a.translation + speed_a * resolve_direction).truncate();
+        */
+
+        let velocity_a = transform_a.translation.truncate() - physics_a.prev_pos;
+        let velocity_b = transform_b.translation.truncate() - physics_b.prev_pos;
+
+        let resolve_direction = separation_vector.normalize();
+        let resolve_vector = overlap * resolve_direction;
+        transform_b.translation += resolve_vector;
+        transform_a.translation -= resolve_vector;
+
+        let diff_a = transform_a.translation.truncate() - transform_b.translation.truncate();
+        let deflection_n_a = (2.0 * physics_b.mass) * (velocity_a - velocity_b).dot(diff_a);
+        let deflection_d_a = diff_a.length_squared() * (physics_a.mass + physics_b.mass);
+        let new_velocity_a = velocity_a - (deflection_n_a / deflection_d_a * diff_a);
+
+        let diff_b = -diff_a;
+        let deflection_n_b = (2.0 * physics_a.mass) * (velocity_b - velocity_a).dot(diff_b);
+        let deflection_d_b = diff_b.length_squared() * (physics_a.mass + physics_b.mass);
+        let new_velocity_b = velocity_b - (deflection_n_b / deflection_d_b * diff_b);
+
+        physics_a.prev_pos = transform_a.translation.truncate() - 0.9 * new_velocity_a;
+        physics_b.prev_pos = transform_b.translation.truncate() - 0.9 * new_velocity_b;
 
         if metadata.is_first_frame {
             metadata.is_first_frame = false;
@@ -359,8 +397,18 @@ fn resolve_phase(
     let upper = (*bounding_size / 2.0).extend(0.0);
 
     for entity in query.iter_mut() {
-        let (mut transform, _, _) = entity;
+        let (mut transform, mut physics, _) = entity;
+        let mut velocity = transform.translation.truncate() - physics.prev_pos;
+        let cache_transform = transform.translation.truncate();
         transform.translation = transform.translation.clamp(lower, upper);
+
+        if cache_transform.x < lower.x || cache_transform.x > upper.x {
+            velocity.x *= -1.0;
+        } else if cache_transform.y < lower.y || cache_transform.y > upper.y {
+            velocity.y *= -1.0;
+        }
+
+        physics.prev_pos = transform.translation.truncate() - velocity;
     }
 }
 
@@ -403,6 +451,7 @@ fn debug_grid_update_step(
 
 fn debug_physics_update_step(
     query: Query<(&Physics, &Transform)>,
+    cache: ResMut<CollisionCache>,
     mut lines: ResMut<DebugLines>
 ) {
     for (physics, transform) in query.iter() {
@@ -412,5 +461,31 @@ fn debug_physics_update_step(
             0.0,
             Color::RED
         );
+
+        lines.line_colored(
+            transform.translation,
+            transform.translation + ((transform.translation.truncate() - physics.prev_pos).extend(0.0) / cache.time_step),
+            0.0,
+            Color::YELLOW
+        );
+    }
+}
+
+fn debug_momentum_step(
+    query: Query<(&Physics, &Transform)>,
+    mut cache: ResMut<CollisionCache>,
+    time: Res<Time>
+) {
+    cache.logger.tick(time.delta());
+
+    if cache.logger.finished() {
+        let mut momentum = 0.0;
+
+        for (physics, transform) in query.iter() {
+            let moment = physics.mass * (transform.translation.truncate() - physics.prev_pos) / cache.time_step;
+            momentum += moment.length();
+        }
+
+        info!("Momentum: {:?}", momentum);
     }
 }
