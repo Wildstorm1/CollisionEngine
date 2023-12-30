@@ -1,4 +1,4 @@
-use super::collision::Physics;
+use super::plugin::Physics;
 use bevy::app::{App, Plugin, PreUpdate};
 use bevy::ecs::system::{Query, Res};
 use bevy::math::Vec2;
@@ -24,10 +24,10 @@ fn gravity_update_step(
     time: Res<Time>
 ) {
     //let direction = 30.0 - (time.elapsed_seconds() % 60.0);
-    /*for (mut physics, transform) in query.iter_mut() {
-        physics.force = Vec2::ZERO; //-50.0 * direction * transform.translation.truncate().normalize();
-    }*/
     for (mut physics, transform) in query.iter_mut() {
-        physics.force = Vec2::new(0.0, -1500.0);
+        physics.force = -50.0 * transform.translation.truncate().normalize();
     }
+    /*for (mut physics, _) in query.iter_mut() {
+        physics.force = Vec2::new(0.0, -1500.0);
+    }*/
 }
