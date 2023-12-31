@@ -1,12 +1,15 @@
 use super::collision::list_grid::{ListGrid, GridSize};
-use super::resolver::resolver::{ObjectBoundary, basic_transform_resolve_phase};
+use super::resolver::bounding_box::{ObjectBoundary, bound_in_box};
+use super::resolver::fluid::fluid_resolver;
+use super::resolver::speed::conserve_speed_resolver;
+use super::resolver::momentum::conserve_momentum_resolver;
 use super::physics::integrator::{Simulation, integration_phase};
 use super::collision::cache::CollisionCache;
 use super::collision::broad::{brute_force_broad_phase, accelerated_broad_phase};
 use super::collision::narrow::narrow_phase;
 use bevy::app::{Plugin, App, Update, PostUpdate};
-use bevy::ecs::schedule::{IntoSystemConfigs, ScheduleLabel, Schedule};
-use bevy::ecs::system::{Res, ResMut};
+use bevy::ecs::schedule::{IntoSystemConfigs, ScheduleLabel, Schedule, SystemSet, IntoSystemSetConfig};
+use bevy::ecs::system::ResMut;
 use bevy::ecs::world::World;
 use bevy::log::error;
 use bevy::math::Vec2;
@@ -16,45 +19,109 @@ use bevy_prototype_debug_lines::DebugShapes;
 #[derive(ScheduleLabel, Debug, Hash, PartialEq, Eq, Clone)]
 struct CollisionSchedule;
 
-pub struct CollisionPlugin;
+pub enum BroadPhaseMode {
+    BruteForce,
+    GridAccelerated
+}
+
+pub enum ResolverMode {
+    Fluid,
+    Momentum,
+    Speed
+}
+
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
+enum CollisionSet {
+    Integration,
+    BroadPhase,
+    NarrowPhase,
+    ResolverPhase
+}
+
+pub struct CollisionPlugin {
+    pub sub_steps: usize,
+    pub grid_center: Vec2,
+    pub grid_size: Vec2,
+    pub grid_cell_size: Vec2,
+    pub debug_enabled: bool,
+    pub broad_mode: BroadPhaseMode,
+    pub resolver_mode: ResolverMode
+}
 
 impl Plugin for CollisionPlugin {
     fn build(&self, app: &mut App) {
         let mut collision_schedule = Schedule::default();
 
+        match self.broad_mode {
+            BroadPhaseMode::BruteForce => {
+                collision_schedule.add_systems(brute_force_broad_phase.in_set(CollisionSet::BroadPhase));
+            },
+            BroadPhaseMode::GridAccelerated => {
+                collision_schedule.add_systems(accelerated_broad_phase.in_set(CollisionSet::BroadPhase));
+            }
+        }
+
+        match self.resolver_mode {
+            ResolverMode::Fluid => {
+                collision_schedule.add_systems(fluid_resolver.in_set(CollisionSet::ResolverPhase));
+            },
+            ResolverMode::Momentum => {
+                collision_schedule.add_systems(conserve_momentum_resolver.in_set(CollisionSet::ResolverPhase));
+            },
+            ResolverMode::Speed => {
+                collision_schedule.add_systems(conserve_speed_resolver.in_set(CollisionSet::ResolverPhase));
+            }
+        }
+
         collision_schedule.add_systems((
-            integration_phase,
-            accelerated_broad_phase.after(integration_phase),
-            narrow_phase.after(accelerated_broad_phase),
-            //brute_force_broad_phase.after(integration_phase),
-            //narrow_phase.after(brute_force_broad_phase),
-            basic_transform_resolve_phase.after(narrow_phase)
+            integration_phase.in_set(CollisionSet::Integration),
+            narrow_phase.in_set(CollisionSet::NarrowPhase),
+            bound_in_box.after(CollisionSet::ResolverPhase)
         ));
 
         let collision_schedule = collision_schedule;
+        let cells = (self.grid_size / self.grid_cell_size).ceil() + 2.0;
 
         app.add_schedule(CollisionSchedule, collision_schedule)
-        .insert_resource(ObjectBoundary::new(
-            Vec2::new(0.0, 0.0),
-            Vec2::new(600.0, 600.0)
+        .configure_sets(CollisionSchedule, (
+            CollisionSet::BroadPhase.after(CollisionSet::Integration),
+            CollisionSet::NarrowPhase.after(CollisionSet::BroadPhase),
+            CollisionSet::ResolverPhase.after(CollisionSet::NarrowPhase)
         ))
-        .insert_resource(Simulation::new())
-        .insert_resource(CollisionCache::with_capacity(
-            600,
+        .insert_resource(ObjectBoundary::new(
+            self.grid_center,
+            self.grid_size
+        ))
+        .insert_resource(Simulation::new(self.sub_steps))
+        .insert_resource(CollisionCache::new(
             Some(Box::new(ListGrid::new(
-                Vec2::new(0.0, 0.0),
-                GridSize { width: 16, height: 16 },
-                Vec2::new(40.0, 40.0),
+                self.grid_center,
+                GridSize {
+                    width: cells.x as usize,
+                    height: cells.y as usize
+                },
+                self.grid_cell_size,
             )))
         ))
         .add_systems(Update, run_schedule);
-        //.add_systems(PostUpdate, draw_debug);
+
+        if self.debug_enabled {
+            app.add_systems(PostUpdate, draw_debug);
+        }
     }
 }
 
 impl Default for CollisionPlugin {
     fn default() -> Self {
-        CollisionPlugin {}
+        CollisionPlugin {
+            sub_steps: 8,
+            grid_center: Vec2::new(0.0, 0.0),
+            grid_size: Vec2::new(600.0, 600.0),
+            grid_cell_size: Vec2::new(40.0, 40.0),
+            debug_enabled: false,
+            broad_mode: BroadPhaseMode::GridAccelerated,
+            resolver_mode: ResolverMode::Fluid
+        }
     }
 }
 
@@ -69,11 +136,10 @@ fn run_schedule(
         }
     };
 
-    let iters = 15;
-
-    match world.get_resource_mut::<Simulation>() {
+    let iters = match world.get_resource_mut::<Simulation>() {
         Some(mut simulation) => {
-            simulation.set_time(time / iters as f32);
+            simulation.set_time(time);
+            simulation.iterations()
         },
         None => {
             error!("Simulation resource not found");

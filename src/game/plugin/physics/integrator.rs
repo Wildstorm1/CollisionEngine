@@ -5,18 +5,24 @@ use bevy::transform::components::Transform;
 
 #[derive(Resource)]
 pub(in super::super) struct Simulation {
+    iterations: usize,
     time_step_seconds: f32
 }
 
 impl Simulation {
-    pub(in super::super) fn new() -> Self {
+    pub(in super::super) fn new(iters: usize) -> Self {
         Self {
+            iterations: iters,
             time_step_seconds: 0.0
         }
     }
 
     pub(in super::super) fn set_time(&mut self, time: f32) {
-        self.time_step_seconds = time;
+        self.time_step_seconds = time / self.iterations as f32;
+    }
+
+    pub(in super::super) fn iterations(&self) -> usize {
+        self.iterations
     }
 }
 

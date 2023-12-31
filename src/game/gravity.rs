@@ -25,7 +25,7 @@ fn gravity_update_step(
 ) {
     /*
     for (mut physics, transform) in query.iter_mut() {
-        physics.force = -50.0 * transform.translation.truncate().normalize();
+        physics.force = -500.0 * transform.translation.truncate().normalize();
     }
     */
     for (mut physics, _) in query.iter_mut() {

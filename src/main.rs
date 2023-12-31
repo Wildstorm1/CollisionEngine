@@ -41,7 +41,7 @@
 
 mod game;
 
-use game::plugin::{Physics, CircleCollider, CollisionPlugin, CircleColliderBundle, AxisAlignedBoundingBox};
+use game::plugin::{ResolverMode, BroadPhaseMode, Physics, CircleCollider, CollisionPlugin, CircleColliderBundle, AxisAlignedBoundingBox};
 use game::gravity::GravityPlugin;
 
 use bevy_prototype_debug_lines::DebugLinesPlugin;
@@ -123,10 +123,9 @@ fn main() {
             count: 0,
             timer: Timer::from_seconds(0.1, TimerMode::Repeating)
         })
-        .add_systems(Startup, (
-            load_startup_elements,
-            //spawn_all_objects_elements
-        ))
+        .add_systems(Startup,
+            load_startup_elements
+        )
         .add_systems(Update, (
             input_update_step,
             spawn_objects_elements
@@ -135,7 +134,15 @@ fn main() {
         .add_plugins(DebugLinesPlugin::default())
         .add_plugins((
             GravityPlugin::default(),
-            CollisionPlugin::default()
+            CollisionPlugin {
+                sub_steps: 10,
+                grid_center: Vec2::new(0.0, 0.0),
+                grid_size: Vec2::new(800.0, 800.0),
+                grid_cell_size: Vec2::new(50.0, 50.0),
+                debug_enabled: false,
+                broad_mode: BroadPhaseMode::GridAccelerated,
+                resolver_mode: ResolverMode::Momentum
+            }
         ))
         .run();
 }
@@ -178,7 +185,7 @@ fn spawn_objects_elements(
     let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
     objects.timer.tick(time.delta());
 
-    if objects.timer.finished() && objects.count < 400 {
+    if objects.timer.finished() && objects.count < 100 {
         objects.timer.reset();
         objects.count += 1;
 
@@ -201,61 +208,6 @@ fn spawn_objects_elements(
         let pos = Transform::IDENTITY.with_translation(Vec3::new(
             300.0 * (2.0 * random::<f32>() - 1.0),
             300.0 * (0.60 + 0.25 * random::<f32>()),
-            0.0
-        ));
-
-        commands.spawn(Mesh2dColliderBundle {
-            mesh: MaterialMesh2dBundle {
-                mesh: circle,
-                material: material,
-                transform: pos,
-                ..default()
-            },
-            physics: Physics::with_velocity(
-                Vec2::ZERO,
-                mass,
-                pos,
-                Vec2::ZERO //-0.35 * pos.translation.truncate().normalize()
-            ),
-            collider: CircleColliderBundle {
-                aabb: AxisAlignedBoundingBox::new(
-                    2.0 * Vec2::new(radius, radius)
-                ),
-                collider: CircleCollider {
-                    radius: radius
-                }
-            }
-        });
-    }
-}
-
-fn spawn_all_objects_elements(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>
-) {
-    let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
-
-    for _ in 0..400 {
-        let lo_r = 20.0 * (0.5 + (0.0 / 2.0));
-        let hi_r = 20.0 * (0.5 + (1.0 / 2.0));
-        let lo_m = 0.15 * lo_r * (0.0 + 1.0);
-        let hi_m = 0.15 * hi_r * (1.0 + 1.0);
-
-        let radius = 20.0 * (0.5 + random::<f32>() / 2.0);
-        let mass = 0.15 * radius * (random::<f32>() + 1.0);
-        let circle = meshes.add(Mesh::from(Circle::new(radius))).into();
-        
-        let d = (mass - lo_m) / (hi_m - lo_m);
-        let color = match Color::hex(colors[(d * colors.len() as f32) as usize]) {
-            Ok(color) => color,
-            Err(_) => Color::WHITE
-        };
-
-        let material = materials.add(ColorMaterial::from(color)).into();
-        let pos = Transform::IDENTITY.with_translation(Vec3::new(
-            300.0 * (2.0 * random::<f32>() - 1.0),
-            300.0 * (2.0 * random::<f32>() - 1.0),
             0.0
         ));
 
