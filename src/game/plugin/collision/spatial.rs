@@ -14,9 +14,9 @@ impl Display for AcceleratorError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         if self.aabb.is_none() && self.pos.is_none() {
             write!(f, "Invalid entity {:?}", self.entity)
-        } else if self.aabb.is_some() {
+        } else if self.aabb.is_some() && self.pos.is_none() {
             write!(f, "Invalid entity {:?} or AABB {:?}", self.entity, self.aabb)
-        } else if self.pos.is_some() {
+        } else if self.aabb.is_none() && self.pos.is_some() {
             write!(f, "Invalid entity {:?} or position {:?}", self.entity, self.pos)
         } else {
             write!(
