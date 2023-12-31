@@ -23,11 +23,12 @@ fn gravity_update_step(
     mut query: Query<(&mut Physics, &Transform)>,
     time: Res<Time>
 ) {
-    //let direction = 30.0 - (time.elapsed_seconds() % 60.0);
+    /*
     for (mut physics, transform) in query.iter_mut() {
         physics.force = -50.0 * transform.translation.truncate().normalize();
     }
-    /*for (mut physics, _) in query.iter_mut() {
+    */
+    for (mut physics, _) in query.iter_mut() {
         physics.force = Vec2::new(0.0, -1500.0);
-    }*/
+    }
 }

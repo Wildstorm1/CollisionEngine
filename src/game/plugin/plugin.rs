@@ -4,11 +4,12 @@ use super::physics::integrator::{Simulation, integration_phase};
 use super::collision::cache::CollisionCache;
 use super::collision::broad::{brute_force_broad_phase, accelerated_broad_phase};
 use super::collision::narrow::narrow_phase;
-use bevy::app::{Plugin, App, Update};
+use bevy::app::{Plugin, App, Update, PostUpdate};
 use bevy::ecs::schedule::IntoSystemConfigs;
 use bevy::ecs::system::{Res, ResMut};
 use bevy::math::Vec2;
 use bevy::time::Time;
+use bevy_prototype_debug_lines::DebugShapes;
 
 pub struct CollisionPlugin;
 
@@ -23,19 +24,20 @@ impl Plugin for CollisionPlugin {
             600,
             Some(Box::new(ListGrid::new(
                 Vec2::new(0.0, 0.0),
-                GridSize { width: 640, height: 640 },
+                GridSize { width: 16, height: 16 },
                 Vec2::new(40.0, 40.0),
             )))
         ))
         .add_systems(Update, (
             update_simulation_time,
             integration_phase.after(update_simulation_time),
-            //.after(integration_phase),
-            //narrow_phase.after(accelerated_broad_phase),
-            brute_force_broad_phase.after(integration_phase),
-            narrow_phase.after(brute_force_broad_phase),
+            accelerated_broad_phase.after(integration_phase),
+            narrow_phase.after(accelerated_broad_phase),
+            //brute_force_broad_phase.after(integration_phase),
+            //narrow_phase.after(brute_force_broad_phase),
             basic_transform_resolve_phase.after(narrow_phase)
         ));
+        //.add_systems(PostUpdate, draw_debug);
     }
 }
 
@@ -50,4 +52,14 @@ fn update_simulation_time(
     mut simulation: ResMut<Simulation>
 ) {
     simulation.set_time(time.delta_seconds());
+}
+
+fn draw_debug(
+    mut shapes: ResMut<DebugShapes>,
+    cache: ResMut<CollisionCache>
+) {
+    match cache.accelerator {
+        Some(ref accelerator) => accelerator.draw_debug(&mut shapes),
+        None => {}
+    }
 }

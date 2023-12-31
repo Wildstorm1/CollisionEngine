@@ -1,9 +1,14 @@
+use super::super::common::debug::DrawDebug;
+use super::cache::Accelerator;
 use super::spatial::{SpatialAccelerator, AcceleratorError};
 use super::collider::AxisAlignedBoundingBox;
 use bevy::ecs::entity::Entity;
+use bevy::ecs::system::ResMut;
+use bevy::render::color::Color;
 use bevy::transform::components::Transform;
 use bevy::math::Vec2;
 use bevy::utils::HashMap;
+use bevy_prototype_debug_lines::DebugShapes;
 
 #[derive(Eq, PartialEq, Hash, Debug, Copy, Clone)]
 struct CellCoord {
@@ -141,6 +146,8 @@ impl ListGrid {
     }
 }
 
+impl Accelerator for ListGrid {}
+
 impl SpatialAccelerator for ListGrid {
     fn insert(&mut self, id: Entity, pos: &Transform, aabb: &AxisAlignedBoundingBox) -> Result<(), AcceleratorError> {
         if self.entity_map.contains_key(&id) {
@@ -163,6 +170,8 @@ impl SpatialAccelerator for ListGrid {
         self.grid[cell_index].push(CellItem {
             entity: id
         });
+
+        self.entity_map.insert(id, cell_index);
 
         Ok(())
     }
@@ -231,6 +240,28 @@ impl SpatialAccelerator for ListGrid {
                 }
             )),
             None => Box::new(Iter::empty())
+        }
+    }
+}
+
+impl DrawDebug for ListGrid {
+    fn draw_debug(&self, shapes: &mut ResMut<DebugShapes>) {
+        let render_size = self.cell_size - Vec2::new(0.5, 0.5);
+    
+        for cell_x in 0..self.grid_size.width {
+            for cell_y in 0..self.grid_size.height {
+                let i = cell_x + cell_y * self.grid_size.width;
+                let mut color = Color::WHITE;
+    
+                if self.grid[i].len() > 0 {
+                    color = Color::RED;
+                }
+    
+                shapes.rect()
+                    .position((self.grid_root + (self.cell_size / 2.0) + Vec2::new(cell_x as f32, cell_y as f32) * self.cell_size).extend(0.0))
+                    .size(render_size)
+                    .color(color);
+            }
         }
     }
 }
