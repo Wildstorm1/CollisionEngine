@@ -28,7 +28,9 @@ fn gravity_update_step(
         physics.force = -500.0 * transform.translation.truncate().normalize();
     }
     */
+    /*
     for (mut physics, _) in query.iter_mut() {
         physics.force = Vec2::new(0.0, -1500.0);
     }
+    */
 }

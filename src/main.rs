@@ -136,8 +136,9 @@ fn main() {
             GravityPlugin::default(),
             CollisionPlugin {
                 sub_steps: 10,
+                bounding_decay: Some(1.0),
                 grid_center: Vec2::new(0.0, 0.0),
-                grid_size: Vec2::new(800.0, 800.0),
+                grid_size: Vec2::new(600.0, 600.0),
                 grid_cell_size: Vec2::new(50.0, 50.0),
                 debug_enabled: false,
                 broad_mode: BroadPhaseMode::GridAccelerated,
@@ -185,7 +186,7 @@ fn spawn_objects_elements(
     let colors = vec!["#FF8578", "#FFB578", "#FFD86B", "8AFF8A", "#87E5FA", "#C58AFF", "#FC88D4"];
     objects.timer.tick(time.delta());
 
-    if objects.timer.finished() && objects.count < 100 {
+    if objects.timer.finished() && objects.count < 50 {
         objects.timer.reset();
         objects.count += 1;
 
@@ -206,8 +207,8 @@ fn spawn_objects_elements(
 
         let material = materials.add(ColorMaterial::from(color)).into();
         let pos = Transform::IDENTITY.with_translation(Vec3::new(
-            300.0 * (2.0 * random::<f32>() - 1.0),
-            300.0 * (0.60 + 0.25 * random::<f32>()),
+            200.0 * (2.0 * random::<f32>() - 1.0),
+            200.0 * (2.0 * random::<f32>() - 1.0),
             0.0
         ));
 
@@ -222,11 +223,14 @@ fn spawn_objects_elements(
                 Vec2::ZERO,
                 mass,
                 pos,
-                Vec2::ZERO //-0.35 * pos.translation.truncate().normalize()
+                0.15 * Vec2::new(
+                    2.0 * random::<f32>() - 1.0,
+                    2.0 * random::<f32>() - 1.0
+                )
             ),
             collider: CircleColliderBundle {
                 aabb: AxisAlignedBoundingBox::new(
-                    2.0 * Vec2::new(radius, radius)
+                    2.0 * Vec2::new(radius + 0.05, radius + 0.05)
                 ),
                 collider: CircleCollider {
                     radius: radius

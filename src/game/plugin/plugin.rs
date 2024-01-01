@@ -40,6 +40,7 @@ enum CollisionSet {
 
 pub struct CollisionPlugin {
     pub sub_steps: usize,
+    pub bounding_decay: Option<f32>,
     pub grid_center: Vec2,
     pub grid_size: Vec2,
     pub grid_cell_size: Vec2,
@@ -90,7 +91,8 @@ impl Plugin for CollisionPlugin {
         ))
         .insert_resource(ObjectBoundary::new(
             self.grid_center,
-            self.grid_size
+            self.grid_size,
+            self.bounding_decay
         ))
         .insert_resource(Simulation::new(self.sub_steps))
         .insert_resource(CollisionCache::new(
@@ -115,6 +117,7 @@ impl Default for CollisionPlugin {
     fn default() -> Self {
         CollisionPlugin {
             sub_steps: 8,
+            bounding_decay: None,
             grid_center: Vec2::new(0.0, 0.0),
             grid_size: Vec2::new(600.0, 600.0),
             grid_cell_size: Vec2::new(40.0, 40.0),
