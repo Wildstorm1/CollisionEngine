@@ -41,6 +41,7 @@
 
 mod game;
 
+use bevy::core_pipeline::clear_color::ClearColor;
 use game::plugin::{ResolverMode, BroadPhaseMode, Physics, CircleCollider, CollisionPlugin, CircleColliderBundle, AxisAlignedBoundingBox};
 use game::gravity::GravityPlugin;
 
@@ -72,7 +73,7 @@ use bevy::transform::components::Transform;
 use bevy::core_pipeline::core_2d::Camera2dBundle;
 use bevy::prelude::{App, Commands};
 use bevy::winit::WinitPlugin;
-use bevy::window::WindowPlugin;
+use bevy::window::{WindowPlugin, Window, WindowResolution};
 use bevy::render::RenderPlugin;
 use bevy::transform::TransformPlugin;
 use bevy::utils::default;
@@ -90,10 +91,33 @@ struct Mesh2dColliderBundle<M> where M: Material2d {
     collider: CircleColliderBundle
 }
 
-struct EnginePlugins;
+struct EnginePlugins {
+    canvas: Option<String>,
+    canvas_size: Option<(f32, f32)>
+}
+
+impl Default for EnginePlugins {
+    fn default() -> Self {
+        Self {
+            canvas: None,
+            canvas_size: None
+        }
+    }
+}
+
+impl EnginePlugins {
+    pub fn new(canvas: String, canvas_size: (f32, f32)) -> Self {
+        Self {
+            canvas: Some(canvas),
+            canvas_size: Some(canvas_size)
+        }
+    }
+}
 
 impl PluginGroup for EnginePlugins {
     fn build(self) -> PluginGroupBuilder {
+        let (canvas_width, canvas_height) = self.canvas_size.unwrap_or((0.0, 0.0));
+
         let group = PluginGroupBuilder::start::<Self>()
             .add(LogPlugin { filter: "warn,collision_engine=debug".into(), level: Level::DEBUG })
             .add(TaskPoolPlugin::default())
@@ -104,7 +128,17 @@ impl PluginGroup for EnginePlugins {
             .add(HierarchyPlugin)
             .add(DiagnosticsPlugin)
             .add(InputPlugin)
-            .add(WindowPlugin::default())
+            .add(match self.canvas {
+                Some(canvas) => WindowPlugin{
+                    primary_window: Some(Window {
+                        canvas: Some(canvas),
+                        resolution: WindowResolution::new(canvas_width, canvas_height),
+                        ..default()
+                    }),
+                    ..default()
+                },
+                None => WindowPlugin::default()
+            })
             .add(AccessibilityPlugin)
             .add(AssetPlugin::default())
             .add(WinitPlugin::default())
@@ -118,34 +152,44 @@ impl PluginGroup for EnginePlugins {
 }
 
 fn main() {
-    App::new()
+    let build_web = true;
+    let mut app = App::new();
+    let width = 400.0;
+    let height = 400.0;
+
+    app.insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
         .insert_resource(Objects {
             count: 0,
             timer: Timer::from_seconds(0.1, TimerMode::Repeating)
         })
-        .add_systems(Startup,
-            load_startup_elements
-        )
-        .add_systems(Update, (
-            input_update_step,
-            spawn_objects_elements
-        ))
-        .add_plugins(EnginePlugins)
-        .add_plugins(DebugLinesPlugin::default())
-        .add_plugins((
+        .add_systems(Startup,load_startup_elements)
+        .add_systems(Update,spawn_objects_elements)
+        .add_plugins(CollisionPlugin {
+            sub_steps: 10,
+            bounding_decay: Some(1.0),
+            grid_center: Vec2::new(0.0, 0.0),
+            grid_size: Vec2::new(width, height),
+            grid_cell_size: Vec2::new(50.0, 50.0),
+            debug_enabled: false,
+            broad_mode: BroadPhaseMode::GridAccelerated,
+            resolver_mode: ResolverMode::Momentum
+        });
+
+    if build_web {
+        app.add_plugins(EnginePlugins::new(
+            "#engine-canvas".into(),
+            (width, height)
+        ));
+    } else {
+        app.add_plugins((
             GravityPlugin::default(),
-            CollisionPlugin {
-                sub_steps: 10,
-                bounding_decay: Some(1.0),
-                grid_center: Vec2::new(0.0, 0.0),
-                grid_size: Vec2::new(600.0, 600.0),
-                grid_cell_size: Vec2::new(50.0, 50.0),
-                debug_enabled: false,
-                broad_mode: BroadPhaseMode::GridAccelerated,
-                resolver_mode: ResolverMode::Momentum
-            }
+            DebugLinesPlugin::default(),
+            EnginePlugins::default()
         ))
-        .run();
+        .add_systems(Update, input_update_step);
+    }
+    
+    app.run();
 }
 
 pub fn input_update_step(
@@ -207,8 +251,8 @@ fn spawn_objects_elements(
 
         let material = materials.add(ColorMaterial::from(color)).into();
         let pos = Transform::IDENTITY.with_translation(Vec3::new(
-            200.0 * (2.0 * random::<f32>() - 1.0),
-            200.0 * (2.0 * random::<f32>() - 1.0),
+            250.0 * (2.0 * random::<f32>() - 1.0),
+            250.0 * (2.0 * random::<f32>() - 1.0),
             0.0
         ));
 
