@@ -157,19 +157,18 @@ fn main() {
     let width = 400.0;
     let height = 400.0;
 
-    app.insert_resource(ClearColor(Color::rgb(0.0, 0.0, 0.0)))
+    app.insert_resource(ClearColor(Color::rgb(1.0, 1.0, 1.0)))
         .insert_resource(Objects {
             count: 0,
             timer: Timer::from_seconds(0.1, TimerMode::Repeating)
         })
         .add_systems(Startup,load_startup_elements)
-        .add_systems(Update,spawn_objects_elements)
         .add_plugins(CollisionPlugin {
             sub_steps: 10,
             bounding_decay: Some(1.0),
             grid_center: Vec2::new(0.0, 0.0),
             grid_size: Vec2::new(width, height),
-            grid_cell_size: Vec2::new(50.0, 50.0),
+            grid_cell_size: Vec2::new(25.0, 25.0),
             debug_enabled: false,
             broad_mode: BroadPhaseMode::GridAccelerated,
             resolver_mode: ResolverMode::Momentum
@@ -179,16 +178,18 @@ fn main() {
         app.add_plugins(EnginePlugins::new(
             "#engine-canvas".into(),
             (width, height)
-        ));
+        ))
+        .add_systems(Update,spawn_web_objects_elements);
     } else {
         app.add_plugins((
             GravityPlugin::default(),
             DebugLinesPlugin::default(),
             EnginePlugins::default()
         ))
-        .add_systems(Update, input_update_step);
+        .add_systems(Update, input_update_step)
+        .add_systems(Update,spawn_desktop_objects_elements);
     }
-    
+
     app.run();
 }
 
@@ -220,7 +221,65 @@ fn load_startup_elements(
     commands.spawn(Camera2dBundle::default());
 }
 
-fn spawn_objects_elements(
+fn spawn_web_objects_elements(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+    time: Res<Time>,
+    mut objects: ResMut<Objects>
+) {
+    let colors = vec!["#ffca61", "#ffec85", "#c9f0d6"];
+    objects.timer.tick(time.delta());
+
+    if objects.timer.finished() && objects.count < 400 {
+        objects.timer.reset();
+        objects.count += 1;
+
+        let radius = 10.0 * (0.5 + random::<f32>() / 2.0);
+        let mass = 0.50 * radius * (random::<f32>() + 1.0);
+        let circle = meshes.add(Mesh::from(Circle::new(radius))).into();
+
+        let color = match Color::hex(colors[random::<usize>() % colors.len()]) {
+            Ok(color) => color,
+            Err(_) => Color::WHITE
+        };
+
+        let material = materials.add(ColorMaterial::from(color)).into();
+        let pos = Transform::IDENTITY.with_translation(Vec3::new(
+            100.0 * (2.0 * random::<f32>() - 1.0),
+            100.0 * (2.0 * random::<f32>() - 1.0),
+            0.0
+        ));
+
+        commands.spawn(Mesh2dColliderBundle {
+            mesh: MaterialMesh2dBundle {
+                mesh: circle,
+                material: material,
+                transform: pos,
+                ..default()
+            },
+            physics: Physics::with_velocity(
+                Vec2::ZERO,
+                mass,
+                pos,
+                0.25 * Vec2::new(
+                    2.0 * random::<f32>() - 1.0,
+                    2.0 * random::<f32>() - 1.0
+                )
+            ),
+            collider: CircleColliderBundle {
+                aabb: AxisAlignedBoundingBox::new(
+                    2.0 * Vec2::new(radius + 0.05, radius + 0.05)
+                ),
+                collider: CircleCollider {
+                    radius: radius
+                }
+            }
+        });
+    }
+}
+
+fn spawn_desktop_objects_elements(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
